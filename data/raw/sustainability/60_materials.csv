@@ -1,0 +1,17 @@
+material,carbon_kg_co2e_per_kg,eco_score
+cotton,5.9,65
+recycled_cotton,2.1,85
+polyester,9.5,45
+recycled_polyester,3.0,80
+nylon,10.5,40
+elastane,15.0,35
+polyurethane,12.5,35
+wool,46.0,40
+linen,3.5,90
+hemp,2.5,95
+viscose,8.0,60
+modal,6.5,70
+lyocell,5.0,85
+acrylic,38.0,30
+leather,17.0,35
+rubber,10.0,40

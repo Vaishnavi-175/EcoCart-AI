@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EcoCart AI — Log In</title>
+<style>
+  :root {
+    --forest:#1B4332; --leaf:#2D6A4F; --sage:#74A892; --cream:#F7F5EF;
+    --paper:#fff; --ink:#1C1C1C; --muted:#6B6B63; --clay:#B33A3A; --line:#E4E0D6;
+  }
+  * { box-sizing: border-box; margin:0; padding:0; }
+  body { font-family: Arial, Helvetica, sans-serif; color: var(--ink); }
+  .split { display: grid; grid-template-columns: 1fr 1fr; min-height: 100vh; }
+
+  .brand-panel { background: var(--forest); color: var(--cream); padding: 48px; display: flex; flex-direction: column; justify-content: space-between; }
+  .brand-logo { display: flex; align-items: center; gap: 10px; font-family: Georgia, serif; font-size: 1.2rem; text-decoration:none; color: var(--cream); }
+  .brand-logo-mark { width: 32px; height: 32px; border-radius: 8px; background: rgba(255,255,255,0.15); display: flex; align-items: center; justify-content: center; flex-shrink:0; }
+  .brand-logo-mark svg { width: 18px; height: 18px; }
+  .brand-quote { max-width: 34ch; }
+  .brand-quote p.quote-text { font-family: Georgia, serif; font-size: 1.5rem; line-height: 1.4; font-style: italic; margin-bottom: 18px; }
+  .brand-quote .quote-meta { font-size: 0.85rem; color: var(--sage); }
+  .brand-stats { display: flex; gap: 34px; font-size: 0.85rem; color: #C9D9CF; }
+  .brand-stats strong { display:block; font-family: Georgia, serif; font-size: 1.4rem; color: var(--cream); font-weight: normal; }
+
+  .form-panel { display: flex; align-items: center; justify-content: center; padding: 40px; background: var(--cream); }
+  .form-box { width: 100%; max-width: 380px; }
+  .form-box h1 { font-family: Georgia, serif; font-weight: normal; font-size: 1.7rem; color: var(--forest); margin-bottom: 6px; }
+  .form-box p.sub { color: var(--muted); font-size: 0.9rem; margin-bottom: 26px; }
+
+  label { display: block; font-size: 0.8rem; color: #555; margin: 12px 0 5px; }
+  input { width: 100%; padding: 10px 12px; border: 1.5px solid var(--line); border-radius: 5px; font-size: 0.93rem; font-family: Arial, sans-serif; background: var(--paper); }
+  input:focus { outline: none; border-color: var(--leaf); box-shadow: 0 0 0 3px rgba(45,106,79,0.12); }
+
+  .forgot-row { display: flex; justify-content: flex-end; margin-top: 8px; }
+  .forgot-row a { font-size: 0.8rem; color: var(--leaf); text-decoration: none; }
+  .forgot-row a:hover { text-decoration: underline; }
+
+  button.submit-btn { width: 100%; padding: 12px; margin-top: 20px; background: var(--leaf); color: white; border: none; border-radius: 5px; font-size: 0.95rem; cursor: pointer; font-weight: bold; }
+  button.submit-btn:hover { background: var(--forest); }
+
+  .msg { margin-top: 14px; font-size: 0.85rem; padding: 10px 12px; border-radius: 5px; display: none; }
+  .msg.error { background: #FBEAEA; color: #7A2020; display: block; }
+  .msg.success { background: #E7F3EA; color: #1B4332; display: block; }
+  .msg.info { background: #FBF1E0; color: #8A5A16; display: block; }
+
+  .switch { margin-top: 22px; font-size: 0.85rem; text-align: center; color: var(--muted); }
+  .switch a { color: var(--leaf); text-decoration: none; font-weight: bold; }
+  .switch a:hover { text-decoration: underline; }
+
+  @media (max-width: 860px) {
+    .split { grid-template-columns: 1fr; }
+    .brand-panel { display: none; }
+  }
+</style>
+</head>
+<body>
+<div class="split">
+  <div class="brand-panel">
+    <a href="index.html" class="brand-logo">
+      <span class="brand-logo-mark">
+        <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M2 3h2l2.4 12.2a1.5 1.5 0 0 0 1.5 1.3h8.6a1.5 1.5 0 0 0 1.5-1.2L20 8H6" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          <circle cx="9" cy="20" r="1.2" fill="white"/>
+          <circle cx="16" cy="20" r="1.2" fill="white"/>
+          <path d="M13 5c0-1.7 1.3-3 3-3 0 1.7-1.3 3-3 3Zm0 0c0 1.7-1.3 3-3 3 0-1.7 1.3-3 3-3Z" fill="white"/>
+        </svg>
+      </span>
+      EcoCart AI
+    </a>
+    <div class="brand-quote">
+      <p class="quote-text">"The most sustainable garment is the one whose impact you actually understood before buying it."</p>
+      <div class="quote-meta">EcoCart AI</div>
+    </div>
+    <div class="brand-stats">
+      <div><strong>3</strong>input methods</div>
+      <div><strong>0–100</strong>Eco Score scale</div>
+      <div><strong>2</strong>research datasets</div>
+    </div>
+  </div>
+
+  <div class="form-panel">
+    <div class="form-box">
+      <h1>Welcome back</h1>
+      <p class="sub">Log in to check your cart's impact</p>
+
+      <form id="loginForm">
+        <label for="email">Email</label>
+        <input type="email" id="email" required>
+
+        <label for="password">Password</label>
+        <input type="password" id="password" required>
+        <div class="forgot-row"><a href="#" id="forgotLink">Forgot password?</a></div>
+
+        <button type="submit" class="submit-btn">Log in</button>
+      </form>
+      <div class="msg" id="msg"></div>
+      <div class="switch">Don't have an account? <a href="signup.html">Sign up</a></div>
+    </div>
+  </div>
+</div>
+
+<script>
+document.getElementById("forgotLink").addEventListener("click", function(e) {
+  e.preventDefault();
+  const msg = document.getElementById("msg");
+  msg.textContent = "Password reset is coming soon. Please contact support for now.";
+  msg.className = "msg info";
+});
+
+document.getElementById("loginForm").addEventListener("submit", async function(e) {
+  e.preventDefault();
+  const email = document.getElementById("email").value.trim();
+  const password = document.getElementById("password").value;
+  const msg = document.getElementById("msg");
+  msg.className = "msg"; msg.style.display = "none";
+
+  try {
+    const res = await fetch("http://127.0.0.1:5000/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password })
+    });
+    const data = await res.json();
+
+    if (!res.ok) {
+      msg.textContent = data.error || "Something went wrong";
+      msg.className = "msg error";
+      return;
+    }
+    localStorage.setItem("ecocart_user", JSON.stringify(data.user));
+    msg.textContent = `Welcome, ${data.user.full_name}! Redirecting...`;
+    msg.className = "msg success";
+    setTimeout(() => window.location.href = "index.html", 1000);
+  } catch (err) {
+    msg.textContent = "Can't reach the server. Is app.py running?";
+    msg.className = "msg error";
+  }
+});
+</script>
+</body>
+</html>

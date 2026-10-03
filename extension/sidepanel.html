@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <title>EcoCart AI</title>
+
+  <link rel="stylesheet" href="sidepanel.css">
+</head>
+
+<body>
+
+<div class="app">
+
+  <!-- HEADER -->
+  <header class="header">
+
+    <div class="brand">
+      <div class="brand-icon">🌿</div>
+
+      <div>
+        <div class="brand-name">
+          eco-cart <span>AI</span>
+        </div>
+
+        <div class="brand-subtitle">
+          Smarter shopping for a greener future
+        </div>
+      </div>
+    </div>
+
+    <button id="refreshBtn" class="icon-btn">
+      ↻
+    </button>
+
+  </header>
+
+
+  <!-- CATEGORY -->
+  <section class="category-section">
+
+    <label>Product category</label>
+
+    <select id="category">
+
+      <option value="T-Shirt">T-Shirt</option>
+      <option value="Shirt">Shirt</option>
+      <option value="Saree">Saree</option>
+      <option value="Kurta">Kurta / Kurti</option>
+      <option value="Jeans">Jeans</option>
+      <option value="Pants">Pants / Trousers</option>
+      <option value="Dress">Dress</option>
+      <option value="Jacket">Jacket / Coat</option>
+      <option value="Shoes">Shoes</option>
+      <option value="Accessories">Accessories</option>
+      <option value="Other">Other</option>
+
+    </select>
+
+  </section>
+
+
+  <!-- PRODUCT -->
+  <section class="product-card">
+
+    <img id="productImage" class="product-image">
+
+    <div class="product-info">
+
+      <div class="category-pill" id="categoryPill">
+        Product
+      </div>
+
+      <h2 id="productName">
+        Detecting product...
+      </h2>
+
+      <p id="productPrice">
+        —
+      </p>
+
+    </div>
+
+  </section>
+
+
+  <!-- SCORE -->
+  <section class="score-card">
+
+    <div class="score-header">
+
+      <div>
+        <span class="eyebrow">
+          ECO SCORE
+        </span>
+
+        <h1>
+          <span id="ecoScore">—</span>
+          <small>/100</small>
+        </h1>
+      </div>
+
+      <div id="scoreBadge" class="score-badge">
+        ANALYZING
+      </div>
+
+    </div>
+
+
+    <div class="score-bar">
+      <div id="scoreProgress"></div>
+    </div>
+
+    <p id="scoreDescription">
+      Analyzing product sustainability...
+    </p>
+
+  </section>
+
+
+  <!-- ROOM TO IMPROVE -->
+  <section class="improve-card">
+
+    <div class="improve-title">
+      <span>Room to improve</span>
+      <strong id="roomScore">—</strong>
+    </div>
+
+    <div class="improve-bar">
+      <div id="improveProgress"></div>
+    </div>
+
+    <p>
+      Based on materials, packaging, carbon footprint,
+      durability and verified certifications.
+    </p>
+
+  </section>
+
+
+  <!-- DETAILS -->
+  <section class="details-card">
+
+    <h3>Sustainability profile</h3>
+
+    <div class="detail-row">
+      <span>♻️ Material</span>
+      <strong id="material">—</strong>
+    </div>
+
+    <div class="detail-row">
+      <span>📦 Packaging</span>
+      <strong id="packaging">—</strong>
+    </div>
+
+    <div class="detail-row">
+      <span>♻️ Recyclable</span>
+      <strong id="recyclable">—</strong>
+    </div>
+
+    <div class="detail-row">
+      <span>🌱 Biodegradable</span>
+      <strong id="biodegradable">—</strong>
+    </div>
+
+    <div class="detail-row">
+      <span>✓ Certification</span>
+      <strong id="certification">—</strong>
+    </div>
+
+    <div class="detail-row">
+      <span>🚚 Shipping distance</span>
+      <strong id="shipping">—</strong>
+    </div>
+
+    <div class="detail-row">
+      <span>🌍 Carbon footprint</span>
+      <strong id="carbon">—</strong>
+    </div>
+
+    <div class="detail-row">
+      <span>🛡 Durability</span>
+      <strong id="durability">—</strong>
+    </div>
+
+  </section>
+
+
+  <!-- ALTERNATIVES -->
+  <section class="alternatives">
+
+    <div class="section-heading">
+
+      <div>
+        <span class="eyebrow">
+          BETTER MATCHES
+        </span>
+
+        <h3>
+          Greener alternatives
+        </h3>
+      </div>
+
+      <span class="sparkle">✦</span>
+
+    </div>
+
+
+    <div id="carbonSaving" class="saving-text">
+      Find products with lower impact
+    </div>
+
+
+    <div id="alternativesList">
+
+      <div class="alternative skeleton"></div>
+      <div class="alternative skeleton"></div>
+
+    </div>
+
+  </section>
+
+
+  <!-- ACTION -->
+  <button id="analysisBtn" class="analysis-btn">
+    Open Full Analysis
+    <span>→</span>
+  </button>
+
+
+  <footer>
+    EcoCart AI • Sustainability estimates are comparative,
+    not lifecycle assessments.
+  </footer>
+
+</div>
+
+<script src="sidepanel.js"></script>
+
+</body>
+</html>

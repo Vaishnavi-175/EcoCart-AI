@@ -1,0 +1,730 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EcoCart AI — Checker</title>
+<style>
+  :root {
+    --forest: #1B4332; --leaf: #2D6A4F; --sage: #74A892; --cream: #F7F5EF;
+    --paper: #FFFFFF; --ink: #1C1C1C; --muted: #6B6B63; --amber: #C77D2E;
+    --clay: #B33A3A; --line: #E4E0D6;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body { font-family: Arial, Helvetica, sans-serif; background: var(--cream); color: var(--ink); line-height: 1.5; }
+  h1, h2, h3 { font-family: Georgia, 'Times New Roman', serif; font-weight: normal; color: var(--forest); }
+  a { color: inherit; }
+
+  nav { padding: 12px 28px; background: var(--forest); border-bottom: 3px solid var(--leaf); }
+  .nav-inner { display: flex; align-items: center; justify-content: space-between; max-width: 1100px; margin: 0 auto; width: 100%; }
+  .logo { display: flex; align-items: center; gap: 9px; font-family: Georgia, serif; font-size: 1.15rem; color: var(--cream); text-decoration: none; }
+  .logo-mark { width: 28px; height: 28px; border-radius: 7px; background: rgba(255,255,255,0.15); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .logo-mark svg { width: 16px; height: 16px; }
+  .nav-links { display: flex; align-items: center; gap: 24px; font-size: 0.88rem; }
+  .nav-links a { text-decoration: none; color: var(--cream); padding: 4px 2px; border-bottom: 2px solid transparent; }
+  .nav-links a:hover { color: var(--sage); }
+  .nav-links a.current { border-bottom-color: var(--sage); color: white; }
+  .nav-cta { background: var(--paper); color: var(--forest) !important; padding: 7px 16px; border-radius: 3px; font-weight: bold; border-bottom: none !important; }
+  .nav-cta:hover { background: var(--cream); }
+  #userGreeting { color: var(--sage); font-size: 0.85rem; }
+
+  .page-hero {
+    background: linear-gradient(160deg, var(--forest) 0%, #0F2A1E 100%);
+    color: var(--cream); padding: 46px 28px 56px; text-align: center;
+  }
+  .page-hero-inner { max-width: 680px; margin: 0 auto; }
+  .page-hero .eyebrow { font-size: 0.74rem; letter-spacing: 1px; color: var(--sage); margin-bottom: 10px; }
+  .page-hero h1 { color: white; font-size: 2.1rem; margin-bottom: 10px; }
+  .page-hero p { color: #C9D9CF; font-size: 0.98rem; max-width: 52ch; margin: 0 auto; }
+
+  main { max-width: 680px; margin: -32px auto 0; padding: 0 20px 70px; position: relative; }
+
+  .tool-card {
+    background: var(--paper); border-radius: 12px; box-shadow: 0 14px 40px rgba(27,67,50,0.14);
+    padding: 8px 8px 24px; margin-bottom: 28px;
+  }
+
+  .tabs { display: flex; gap: 4px; padding: 10px 10px 0; }
+  .tab-btn {
+    flex: 1; background: none; border: none; padding: 12px 10px; font-size: 0.88rem; color: var(--muted);
+    cursor: pointer; border-radius: 8px 8px 0 0; font-family: Arial, sans-serif; display: flex;
+    align-items: center; justify-content: center; gap: 7px; transition: background 0.15s;
+  }
+  .tab-btn:hover { background: #faf9f5; color: var(--forest); }
+  .tab-btn.active { color: var(--forest); font-weight: bold; background: var(--cream); }
+  .tab-icon { width: 16px; height: 16px; flex-shrink: 0; }
+  .tab-panel { display: none; padding: 20px 22px 0; }
+  .tab-panel.active { display: block; }
+
+  .search-box { display: flex; gap: 10px; margin-bottom: 8px; }
+  input[type="text"] {
+    flex: 1; padding: 13px 15px; font-size: 1rem; font-family: Arial, sans-serif;
+    border: 1.5px solid var(--line); border-radius: 7px; background: var(--paper);
+    transition: border-color 0.15s;
+  }
+  input[type="text"]:focus { outline: none; border-color: var(--leaf); box-shadow: 0 0 0 3px rgba(45,106,79,0.1); }
+  button.check-btn {
+    padding: 13px 24px; font-size: 0.95rem; background: var(--leaf); color: white;
+    border: none; border-radius: 7px; cursor: pointer; font-weight: bold; transition: background 0.15s;
+  }
+  button.check-btn:hover { background: var(--forest); }
+  .hint { font-size: 0.8rem; color: #888; margin-bottom: 20px; line-height: 1.5; }
+  .suggestions { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 20px; }
+  .sugg-chip {
+    font-size: 0.78rem; padding: 5px 12px; background: var(--cream); border: 1px solid var(--line);
+    border-radius: 14px; cursor: pointer; color: var(--forest);
+  }
+  .sugg-chip:hover { background: #ECE9DF; }
+
+  .loading { color: #888; font-size: 0.9rem; display: flex; align-items: center; gap: 8px; }
+  .spinner {
+    width: 14px; height: 14px; border: 2px solid var(--line); border-top-color: var(--leaf);
+    border-radius: 50%; animation: spin 0.7s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .result { display: none; }
+  .error-box { background: #FBEAEA; border-left: 4px solid var(--clay); padding: 14px 16px; border-radius: 6px; font-size: 0.9rem; color: #7A2020; }
+
+  .score-card { background: var(--paper); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+  .score-top { padding: 22px 24px 18px; background: var(--cream); }
+  .score-material-row { display: flex; justify-content: space-between; align-items: flex-start; }
+  .material-name { font-family: Georgia, serif; font-size: 1.3rem; color: var(--forest); text-transform: capitalize; }
+  .material-type { font-size: 0.76rem; color: #888; margin-top: 2px; }
+  .score-circle-wrap { text-align: center; margin: 18px 0 4px; }
+  .score-ring { position: relative; width: 120px; height: 120px; margin: 0 auto; }
+  .score-ring svg { transform: rotate(-90deg); }
+  .score-ring-bg { fill: none; stroke: #e4e0d6; stroke-width: 8; }
+  .score-ring-fg { fill: none; stroke-width: 8; stroke-linecap: round; transition: stroke-dashoffset 0.6s ease; }
+  .score-ring-text { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+  .score-ring-num { font-family: Georgia, serif; font-size: 2rem; font-weight: bold; line-height: 1; }
+  .score-ring-max { font-size: 0.7rem; color: #999; }
+  .score-ring-label { font-size: 0.82rem; margin-top: 6px; font-weight: bold; }
+
+  .metrics-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--line); }
+  .metric-tile { background: var(--paper); padding: 14px 18px; }
+  .metric-tile .mt-label { font-size: 0.7rem; color: var(--muted); letter-spacing: 0.3px; text-transform: uppercase; }
+  .metric-tile .mt-value { font-size: 1.05rem; font-weight: bold; margin-top: 3px; }
+  .metric-tile.full { grid-column: 1 / -1; }
+
+  .confidence-bar-wrap { padding: 16px 18px; background: var(--paper); border-top: 1px solid var(--line); }
+  .conf-row { display: flex; justify-content: space-between; font-size: 0.8rem; margin-bottom: 6px; }
+  .conf-row .k { color: var(--muted); }
+  .conf-row .v { font-weight: bold; }
+  .conf-bar-track { height: 6px; background: #e4e0d6; border-radius: 3px; overflow: hidden; }
+  .conf-bar-fill { height: 100%; background: var(--sage); border-radius: 3px; }
+
+  .source-box { padding: 16px 18px; background: #faf9f5; border-top: 1px solid var(--line); }
+  .source-box .s-label { font-size: 0.68rem; color: var(--sage); letter-spacing: 0.5px; margin-bottom: 4px; }
+  .source-box .s-text { font-size: 0.78rem; color: var(--muted); line-height: 1.5; }
+  .source-box .s-note { font-size: 0.76rem; color: #999; margin-top: 6px; font-style: italic; line-height: 1.5; }
+
+  /* PRODUCT (barcode) CARD */
+  .product { background: var(--paper); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+  .product-head { display: flex; gap: 18px; align-items: flex-start; padding: 20px; background: var(--cream); }
+  .product-img { width: 96px; height: 96px; object-fit: contain; border: 1px solid var(--line); border-radius: 8px; background: white; flex-shrink: 0; }
+  .product-noimg { width: 96px; height: 96px; border: 1px dashed var(--line); border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 0.68rem; color: #aaa; flex-shrink: 0; background: white; }
+  .product-cat { display: inline-block; font-size: 0.68rem; background: #E7F3EA; color: var(--forest); padding: 2px 9px; border-radius: 10px; margin-bottom: 7px; font-weight: bold; }
+  .product-name { font-family: Georgia, serif; font-size: 1.25rem; color: var(--forest); }
+  .product-brand { font-size: 0.84rem; color: var(--muted); margin-top: 2px; }
+
+  .section { padding: 18px 20px; border-bottom: 1px solid var(--line); }
+  .section:last-child { border-bottom: none; }
+  .section-title { font-size: 0.7rem; letter-spacing: 0.8px; text-transform: uppercase; color: var(--leaf); font-weight: bold; margin-bottom: 12px; }
+  .subnote { font-size: 0.72rem; color: #999; margin-top: 10px; line-height: 1.5; }
+
+  .nutr-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; }
+  .nutr-item { background: var(--cream); border-radius: 7px; padding: 10px 12px; }
+  .nutr-label { font-size: 0.7rem; color: var(--muted); }
+  .nutr-val { font-size: 1.1rem; font-weight: bold; margin: 2px 0 4px; }
+  .nutr-val .unit { font-size: 0.7rem; font-weight: normal; color: var(--muted); }
+
+  .pill { display: inline-block; font-size: 0.68rem; padding: 2px 9px; border-radius: 10px; font-weight: bold; }
+  .pill.ok { background: #E7F3EA; color: var(--forest); }
+  .pill.mid { background: #FBF1E0; color: #8A5A16; }
+  .pill.bad { background: #FBEAEA; color: #7A2020; }
+  .pill.unk { background: #EFEFEA; color: var(--muted); }
+
+  .kv { display: flex; justify-content: space-between; gap: 16px; padding: 8px 0; border-bottom: 1px solid #f0eee8; font-size: 0.88rem; }
+  .kv:last-child { border-bottom: none; }
+  .kv .k { color: #666; flex-shrink: 0; }
+  .kv .v { text-align: right; font-weight: bold; }
+
+  .env-box { padding: 13px 15px; border-radius: 8px; background: #F0EFEA; font-size: 0.85rem; color: var(--muted); }
+  .env-box strong { color: var(--ink); }
+
+  .pack-item { padding: 12px 0; border-bottom: 1px solid #f0eee8; }
+  .pack-item:last-child { border-bottom: none; }
+  .pack-top { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 4px; }
+  .pack-name { font-weight: bold; font-size: 0.92rem; }
+  .pack-line { font-size: 0.82rem; color: var(--muted); }
+  .pack-line b { color: var(--ink); font-weight: bold; }
+
+  /* CAMERA TAB */
+  .cam-box { background: var(--cream); border: 1.5px dashed var(--line); border-radius: 10px; padding: 32px 20px; text-align: center; }
+  .cam-box.has-image { border-style: solid; padding: 20px; background: var(--paper); }
+  .cam-icon-big { width: 40px; height: 40px; color: var(--sage); margin: 0 auto 10px; }
+  .cam-preview { max-width: 100%; max-height: 320px; border-radius: 8px; display: none; margin: 0 auto 16px; }
+  .cam-video { width: 100%; max-height: 320px; border-radius: 8px; display: none; background: #000; margin-bottom: 12px; }
+  .cam-actions { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin-top: 14px; }
+  .cam-btn {
+    padding: 11px 20px; font-size: 0.88rem; border-radius: 7px; cursor: pointer;
+    border: 1.5px solid var(--leaf); background: var(--paper); color: var(--leaf); font-family: Arial, sans-serif; font-weight: bold;
+  }
+  .cam-btn.primary { background: var(--leaf); color: white; border-color: var(--leaf); }
+  .cam-btn.primary:hover { background: var(--forest); }
+  .cam-btn:hover { background: #f2f7f4; }
+  .cam-hint-text { color: var(--muted); font-size: 0.9rem; }
+  .cam-result-list { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; }
+  .cam-pred-row { display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; background: var(--cream); border-radius: 7px; }
+  .cam-pred-name { font-weight: bold; text-transform: capitalize; font-size: 0.88rem; }
+  .cam-pred-bar { flex: 1; height: 6px; background: #e4e0d6; border-radius: 3px; margin: 0 12px; overflow: hidden; }
+  .cam-pred-fill { height: 100%; background: var(--leaf); border-radius: 3px; }
+  .cam-pred-pct { font-size: 0.82rem; color: var(--muted); width: 42px; text-align: right; }
+  .cam-select { width: 100%; padding: 11px 13px; border: 1.5px solid var(--leaf); border-radius: 7px; font-size: 0.92rem; background: var(--paper); font-family: Arial, sans-serif; }
+
+  .trust-row {
+    display: flex; justify-content: center; gap: 28px; padding: 22px 0; margin-top: 10px;
+    border-top: 1px solid var(--line); flex-wrap: wrap;
+  }
+  .trust-item { text-align: center; font-size: 0.78rem; color: var(--muted); max-width: 150px; }
+  .trust-item .t-num { font-family: Georgia, serif; font-size: 1.3rem; color: var(--forest); display: block; }
+
+  footer { border-top: 1px solid var(--line); padding: 34px 28px; font-size: 0.82rem; color: var(--muted); }
+  .footer-inner { max-width: 1100px; margin: 0 auto; display: flex; justify-content: space-between; align-items: center; }
+  .footer-inner a { text-decoration: none; color: var(--muted); margin-left: 18px; }
+  .footer-inner a:hover { color: var(--forest); }
+
+  @media (max-width: 800px) {
+    .nav-links { gap: 14px; font-size: 0.82rem; }
+    .tab-btn span.tab-label { display: none; }
+    .metrics-grid { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="nav-inner">
+    <a href="index.html" class="logo">
+      <span class="logo-mark">
+        <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M2 3h2l2.4 12.2a1.5 1.5 0 0 0 1.5 1.3h8.6a1.5 1.5 0 0 0 1.5-1.2L20 8H6" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          <circle cx="9" cy="20" r="1.2" fill="white"/>
+          <circle cx="16" cy="20" r="1.2" fill="white"/>
+          <path d="M13 5c0-1.7 1.3-3 3-3 0 1.7-1.3 3-3 3Zm0 0c0 1.7-1.3 3-3 3 0-1.7 1.3-3 3-3Z" fill="white"/>
+        </svg>
+      </span>
+      EcoCart AI
+    </a>
+    <div class="nav-links">
+      <a href="discover.html">Discover</a>
+      <a href="checker.html" class="current">Checker</a>
+      <a href="cart.html">Cart</a>
+      <span id="userGreeting" style="display:none;"></span>
+      <a href="login.html" id="loginLink">Log in</a>
+      <a href="signup.html" id="signupLink" class="nav-cta">Sign up</a>
+      <a href="#" id="logoutLink" style="display:none;">Log out</a>
+    </div>
+  </div>
+</nav>
+
+<div class="page-hero">
+  <div class="page-hero-inner">
+    <div class="eyebrow">PRODUCT CHECKER</div>
+    <h1>Three ways to check an impact.</h1>
+    <p>Type a material, scan a barcode, or show a camera a garment — every result comes with its sources and a confidence rating, not just a number.</p>
+  </div>
+</div>
+
+<main>
+  <div class="tool-card">
+    <div class="tabs">
+      <button class="tab-btn active" id="tabBtnMaterial">
+        <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l3 7h7l-5.5 4.5L18 21l-6-4-6 4 1.5-7.5L2 9h7z"/></svg>
+        <span class="tab-label">Material</span>
+      </button>
+      <button class="tab-btn" id="tabBtnBarcode">
+        <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="1"/><path d="M7 8v8M10 8v8M13 8v8M17 8v8"/></svg>
+        <span class="tab-label">Barcode</span>
+      </button>
+      <button class="tab-btn" id="tabBtnCamera">
+        <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+        <span class="tab-label">Camera</span>
+      </button>
+    </div>
+
+    <div class="tab-panel active" id="materialTab">
+      <div class="search-box">
+        <input type="text" id="materialInput" placeholder="Type a fabric, e.g. cotton" onkeydown="if(event.key==='Enter') checkEcoScore()">
+        <button class="check-btn" onclick="checkEcoScore()">Check</button>
+      </div>
+      <div class="suggestions">
+        <span class="sugg-chip" onclick="quickCheck('cotton')">cotton</span>
+        <span class="sugg-chip" onclick="quickCheck('polyester')">polyester</span>
+        <span class="sugg-chip" onclick="quickCheck('denim')">denim</span>
+        <span class="sugg-chip" onclick="quickCheck('silk')">silk</span>
+        <span class="sugg-chip" onclick="quickCheck('wool')">wool</span>
+      </div>
+      <p class="hint">Cross-referenced against peer-reviewed sustainability studies — every score shows its confidence.</p>
+      <div id="result" class="result"></div>
+    </div>
+
+    <div class="tab-panel" id="barcodeTab">
+      <div class="search-box">
+        <input type="text" id="barcodeInput" placeholder="Enter barcode digits, e.g. 3017620422003" onkeydown="if(event.key==='Enter') lookupBarcode()">
+        <button class="check-btn" onclick="lookupBarcode()">Look up</button>
+      </div>
+      <p class="hint">Searches the open Food, Beauty and Products databases — community-contributed, so coverage varies by product.</p>
+      <div id="barcodeResult" class="result"></div>
+    </div>
+
+    <div class="tab-panel" id="cameraTab">
+      <div class="cam-box" id="camBox">
+        <video id="camVideo" class="cam-video" autoplay playsinline></video>
+        <img id="camPreview" class="cam-preview" alt="Selected photo">
+        <svg class="cam-icon-big" id="camIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+        <p class="cam-hint-text" id="camHintText">Upload a photo, or use your camera, to detect the garment category.</p>
+        <div class="cam-actions">
+          <label class="cam-btn primary">
+            Upload photo
+            <input type="file" id="camFileInput" accept="image/*" style="display:none;">
+          </label>
+          <button class="cam-btn" id="camStartBtn" onclick="startCamera()">Use camera</button>
+          <button class="cam-btn" id="camCaptureBtn" onclick="capturePhoto()" style="display:none;">Capture</button>
+          <button class="cam-btn" id="camDetectBtn" onclick="detectImage()" style="display:none;">Detect</button>
+          <button class="cam-btn" id="camResetBtn" onclick="resetCamera()" style="display:none;">Try another</button>
+        </div>
+      </div>
+      <p class="hint">Trained on the Fashionpedia dataset for garment category detection. After detection, select the fabric to get its Eco Score.</p>
+      <div id="cameraResult" class="result"></div>
+      <canvas id="camCanvas" style="display:none;"></canvas>
+    </div>
+
+    <div class="trust-row">
+      <div class="trust-item"><span class="t-num">60+</span>materials scored</div>
+      <div class="trust-item"><span class="t-num">3</span>input methods</div>
+      <div class="trust-item"><span class="t-num">0–100</span>Eco Score scale</div>
+    </div>
+  </div>
+</main>
+
+<footer>
+  <div class="footer-inner">
+    <div>EcoCart AI — a sustainability lookup for everyday shopping</div>
+    <div>
+      <a href="index.html">Home</a>
+      <a href="discover.html">Discover</a>
+      <a href="cart.html">Cart</a>
+    </div>
+  </div>
+</footer>
+
+<script>
+const API = "http://127.0.0.1:5000";
+
+function esc(s) {
+  return String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+}
+
+const savedUser = localStorage.getItem("ecocart_user");
+if (savedUser) {
+  const user = JSON.parse(savedUser);
+  document.getElementById("userGreeting").style.display = "inline";
+  document.getElementById("userGreeting").textContent = "Hi, " + user.full_name;
+  document.getElementById("loginLink").style.display = "none";
+  document.getElementById("signupLink").style.display = "none";
+  document.getElementById("logoutLink").style.display = "inline";
+}
+document.getElementById("logoutLink").addEventListener("click", function(e) {
+  e.preventDefault();
+  localStorage.removeItem("ecocart_user");
+  window.location.reload();
+});
+
+function showTab(name) {
+  document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
+  document.querySelectorAll(".tab-panel").forEach(p => p.classList.remove("active"));
+  document.getElementById("tabBtn" + name).classList.add("active");
+  document.getElementById(name.charAt(0).toLowerCase() + name.slice(1) + "Tab").classList.add("active");
+  if (name !== "Camera") stopCameraStream();
+}
+document.getElementById("tabBtnMaterial").addEventListener("click", () => showTab("Material"));
+document.getElementById("tabBtnBarcode").addEventListener("click", () => showTab("Barcode"));
+document.getElementById("tabBtnCamera").addEventListener("click", () => showTab("Camera"));
+
+function quickCheck(material) {
+  document.getElementById("materialInput").value = material;
+  checkEcoScore();
+}
+
+// ---------- MATERIAL ----------
+async function checkEcoScore() {
+  const material = document.getElementById("materialInput").value.trim().toLowerCase();
+  const resultDiv = document.getElementById("result");
+  if (!material) return;
+
+  resultDiv.style.display = "block";
+  resultDiv.innerHTML = `<p class="loading"><span class="spinner"></span> Looking up "${esc(material)}"...</p>`;
+
+  try {
+    const response = await fetch(`${API}/eco-score/${encodeURIComponent(material)}`);
+    if (!response.ok) {
+      resultDiv.innerHTML = `<div class="error-box">No data found for "<strong>${esc(material)}</strong>". Try: cotton, polyester, denim, silk, wool.</div>`;
+      return;
+    }
+    const data = await response.json();
+    const score = data.eco_score ?? 0;
+    const tier = score >= 70 ? "good" : score >= 45 ? "medium" : "poor";
+    const color = score >= 70 ? '#2D6A4F' : score >= 45 ? '#C77D2E' : '#B33A3A';
+    const circumference = 2 * Math.PI * 50;
+    const offset = circumference - (score / 100) * circumference;
+
+    resultDiv.innerHTML = `
+      <div class="score-card">
+        <div class="score-top">
+          <div class="score-material-row">
+            <div>
+              <div class="material-name">${esc(data.material_label.replace(/_/g, ' '))}</div>
+              <div class="material-type">${data.type === 'fibre' ? 'Fibre' : 'Fabric'} · ${esc(data.impact_category)}</div>
+            </div>
+          </div>
+          <div class="score-circle-wrap">
+            <div class="score-ring">
+              <svg width="120" height="120" viewBox="0 0 120 120">
+                <circle class="score-ring-bg" cx="60" cy="60" r="50"></circle>
+                <circle class="score-ring-fg" cx="60" cy="60" r="50" stroke="${color}"
+                  stroke-dasharray="${circumference}" stroke-dashoffset="${offset}"></circle>
+              </svg>
+              <div class="score-ring-text">
+                <span class="score-ring-num" style="color:${color};">${esc(score)}</span>
+                <span class="score-ring-max">out of 100</span>
+              </div>
+            </div>
+            <div class="score-ring-label" style="color:${color};">${esc(data.eco_score_label)}</div>
+          </div>
+        </div>
+
+        <div class="metrics-grid">
+          <div class="metric-tile">
+            <div class="mt-label">Carbon footprint</div>
+            <div class="mt-value">${esc(data.carbon_footprint_kg_co2e_per_kg ?? '—')} kg CO2e/kg</div>
+          </div>
+          <div class="metric-tile">
+            <div class="mt-label">Water usage</div>
+            <div class="mt-value">${data.water_usage_l_per_kg ? esc(data.water_usage_l_per_kg) + ' L/kg' : 'Not available'}</div>
+          </div>
+        </div>
+
+        <div class="confidence-bar-wrap">
+          <div class="conf-row"><span class="k">Data confidence</span><span class="v">${esc(data.confidence_score)}%</span></div>
+          <div class="conf-bar-track"><div class="conf-bar-fill" style="width:${data.confidence_score}%;"></div></div>
+        </div>
+
+        <div class="source-box">
+          <div class="s-label">SOURCE</div>
+          <div class="s-text">${esc(data.source)}</div>
+          <div class="s-note">${esc(data.notes)}</div>
+        </div>
+      </div>`;
+  } catch (err) {
+    resultDiv.innerHTML = `<div class="error-box">Can't reach the backend. Make sure <code>python app.py</code> is running.</div>`;
+  }
+}
+
+// ---------- BARCODE ----------
+const CATEGORY_NAMES = { food: "Food", cosmetics: "Cosmetics", general: "General product" };
+const NOVA_TEXT = { 1: "Unprocessed or minimally processed", 2: "Processed culinary ingredient", 3: "Processed food", 4: "Ultra-processed food" };
+const NUTR_ROWS = [
+  ["Energy", "energy_kcal", "kcal", null],
+  ["Sugars", "sugars", "g", "sugars"],
+  ["Fibre", "fiber", "g", null],
+  ["Fat", "fat", "g", "fat"],
+  ["Saturated fat", "saturated_fat", "g", "saturated-fat"],
+  ["Carbohydrates", "carbs", "g", null],
+  ["Protein", "protein", "g", null],
+  ["Salt", "salt", "g", "salt"]
+];
+
+function levelPill(level) {
+  if (!level) return "";
+  const cls = level === "low" ? "ok" : level === "moderate" ? "mid" : level === "high" ? "bad" : "unk";
+  const txt = level.charAt(0).toUpperCase() + level.slice(1);
+  return `<span class="pill ${cls}">${esc(txt)}</span>`;
+}
+function concernPill(c) {
+  const map = { low: ["ok", "Lower concern"], medium: ["mid", "Some concern"], high: ["bad", "Higher concern"], unknown: ["unk", "Unclear"] };
+  const [cls, txt] = map[c] || map.unknown;
+  return `<span class="pill ${cls}">${txt}</span>`;
+}
+
+async function lookupBarcode() {
+  const code = document.getElementById("barcodeInput").value.trim();
+  const out = document.getElementById("barcodeResult");
+  if (!code) return;
+
+  out.style.display = "block";
+  out.innerHTML = `<p class="loading"><span class="spinner"></span> Looking up ${esc(code)}...</p>`;
+
+  try {
+    const res = await fetch(`${API}/barcode/${encodeURIComponent(code)}`);
+    const d = await res.json();
+    if (!res.ok) {
+      out.innerHTML = `<div class="error-box">${esc(d.error || "Product not found")}</div>`;
+      return;
+    }
+
+    const img = d.image ? `<img class="product-img" src="${esc(d.image)}" alt="Product image">` : `<div class="product-noimg">No image</div>`;
+
+    const nutr = d.nutrition || {};
+    const levels = d.nutrient_levels || {};
+    const nutrItems = NUTR_ROWS
+      .filter(r => nutr[r[1]] !== null && nutr[r[1]] !== undefined)
+      .map(r => `<div class="nutr-item"><div class="nutr-label">${r[0]}</div><div class="nutr-val">${esc(nutr[r[1]])} <span class="unit">${r[2]}</span></div>${r[3] ? levelPill(levels[r[3]]) : ""}</div>`).join("");
+    const nutritionSection = nutrItems ? `<div class="section"><div class="section-title">Nutrition per 100 g</div><div class="nutr-grid">${nutrItems}</div><div class="subnote">Low / moderate / high levels are calculated by the open database, not by EcoCart.</div></div>` : "";
+
+    const procRows = [];
+    if (d.nutriscore_grade) procRows.push(`<div class="kv"><span class="k">Nutri-Score (health)</span><span class="v">${esc(d.nutriscore_grade.toUpperCase())}</span></div>`);
+    if (d.nova_group) procRows.push(`<div class="kv"><span class="k">Processing level (NOVA ${esc(d.nova_group)})</span><span class="v">${esc(NOVA_TEXT[d.nova_group] || "")}</span></div>`);
+    if (d.additives && d.additives.length) procRows.push(`<div class="kv"><span class="k">Additives</span><span class="v">${d.additives.length} (${esc(d.additives.slice(0, 6).join(", "))}${d.additives.length > 6 ? "…" : ""})</span></div>`);
+    if (d.allergens && d.allergens.length) procRows.push(`<div class="kv"><span class="k">Allergens</span><span class="v">${esc(d.allergens.join(", "))}</span></div>`);
+    const processingSection = procRows.length ? `<div class="section"><div class="section-title">Processing &amp; allergens</div>${procRows.join("")}</div>` : "";
+
+    let envInner = d.env_grade
+      ? `Environmental grade: <strong>${esc(d.env_grade.toUpperCase())}</strong>${d.env_score !== null ? ` (${esc(d.env_score)}/100)` : ""}`
+      : `<strong>Environmental grade not available</strong> for this product in the open database. We don't guess.`;
+    const carbonRow = (d.carbon_kg_co2e_per_kg !== null && d.carbon_kg_co2e_per_kg !== undefined)
+      ? `<div class="kv" style="margin-top:8px;"><span class="k">Carbon footprint of the food</span><span class="v">${esc(d.carbon_kg_co2e_per_kg)} kg CO2e per kg</span></div>`
+      : `<div class="kv" style="margin-top:8px;"><span class="k">Carbon footprint of the food</span><span class="v">Not available</span></div>`;
+    const envSection = `<div class="section"><div class="section-title">Environment</div><div class="env-box">${envInner}</div>${carbonRow}</div>`;
+
+    const pack = d.packaging_analysis || [];
+    const packItems = pack.map(m => `<div class="pack-item"><div class="pack-top"><span class="pack-name">${esc(m.name)}${m.code ? ` <span style="color:var(--muted);font-weight:normal;">(#${esc(m.code)})</span>` : ""}</span>${concernPill(m.concern)}</div><div class="pack-line"><b>Recycling:</b> ${esc(m.recycling)}</div><div class="pack-line"><b>Health:</b> ${esc(m.health)}</div></div>`).join("");
+    const packSection = `<div class="section"><div class="section-title">Packaging</div>${packItems || `<div class="pack-line">No packaging information in the database for this product.</div>`}${pack.length ? `<div class="subnote">General consumer guidance from published sources, not medical advice.</div>` : ""}${d.packaging_text ? `<div class="subnote">Database entry: ${esc(d.packaging_text)}</div>` : ""}</div>`;
+
+    const ingSection = d.ingredients ? `<div class="section"><div class="section-title">Ingredients</div><div class="pack-line">${esc(d.ingredients)}</div></div>` : "";
+
+    out.innerHTML = `
+      <div class="product">
+        <div class="product-head">
+          ${img}
+          <div>
+            <span class="product-cat">${esc(CATEGORY_NAMES[d.category] || d.category)}</span>
+            <div class="product-name">${esc(d.name || "Unnamed product")}</div>
+            <div class="product-brand">${esc(d.brand || "Brand unknown")}${d.quantity ? " · " + esc(d.quantity) : ""}</div>
+          </div>
+        </div>
+        ${nutritionSection}${processingSection}${envSection}${packSection}${ingSection}
+        <div class="section"><div class="subnote" style="margin-top:0;">Data source: ${esc(d.source)} (open database, community-contributed).</div></div>
+      </div>`;
+  } catch (err) {
+    out.innerHTML = `<div class="error-box">Can't reach the backend. Make sure <code>python app.py</code> is running.</div>`;
+  }
+}
+
+// ---------- CAMERA ----------
+let camStream = null;
+let capturedBlob = null;
+
+function setCamHint(text) { document.getElementById("camHintText").textContent = text; }
+
+document.getElementById("camFileInput").addEventListener("change", function(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  capturedBlob = file;
+  showPreview(URL.createObjectURL(file));
+});
+
+async function startCamera() {
+  try {
+    camStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+    const video = document.getElementById("camVideo");
+    video.srcObject = camStream;
+    video.style.display = "block";
+    document.getElementById("camPreview").style.display = "none";
+    document.getElementById("camIcon").style.display = "none";
+    document.getElementById("camStartBtn").style.display = "none";
+    document.getElementById("camCaptureBtn").style.display = "inline-block";
+    document.getElementById("camDetectBtn").style.display = "none";
+    document.getElementById("camResetBtn").style.display = "inline-block";
+    setCamHint("Point the camera at the garment, then capture.");
+  } catch (err) {
+    setCamHint("Could not access the camera. You can still upload a photo instead.");
+  }
+}
+
+function stopCameraStream() {
+  if (camStream) {
+    camStream.getTracks().forEach(t => t.stop());
+    camStream = null;
+  }
+}
+
+function capturePhoto() {
+  const video = document.getElementById("camVideo");
+  const canvas = document.getElementById("camCanvas");
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  canvas.getContext("2d").drawImage(video, 0, 0);
+  canvas.toBlob(blob => {
+    capturedBlob = blob;
+    showPreview(URL.createObjectURL(blob));
+    stopCameraStream();
+  }, "image/jpeg", 0.9);
+}
+
+function showPreview(url) {
+  const preview = document.getElementById("camPreview");
+  preview.src = url;
+  preview.style.display = "block";
+  document.getElementById("camVideo").style.display = "none";
+  document.getElementById("camIcon").style.display = "none";
+  document.getElementById("camBox").classList.add("has-image");
+  document.getElementById("camStartBtn").style.display = "none";
+  document.getElementById("camCaptureBtn").style.display = "none";
+  document.getElementById("camDetectBtn").style.display = "inline-block";
+  document.getElementById("camResetBtn").style.display = "inline-block";
+  setCamHint("Photo ready. Click Detect to identify the garment.");
+}
+
+function resetCamera() {
+  stopCameraStream();
+  capturedBlob = null;
+  document.getElementById("camPreview").style.display = "none";
+  document.getElementById("camVideo").style.display = "none";
+  document.getElementById("camIcon").style.display = "block";
+  document.getElementById("camBox").classList.remove("has-image");
+  document.getElementById("camStartBtn").style.display = "inline-block";
+  document.getElementById("camCaptureBtn").style.display = "none";
+  document.getElementById("camDetectBtn").style.display = "none";
+  document.getElementById("camResetBtn").style.display = "none";
+  document.getElementById("camFileInput").value = "";
+  document.getElementById("cameraResult").style.display = "none";
+  setCamHint("Upload a photo, or use your camera, to detect the garment category.");
+}
+
+async function detectImage() {
+  const out = document.getElementById("cameraResult");
+  if (!capturedBlob) return;
+
+  out.style.display = "block";
+  out.innerHTML = `<p class="loading"><span class="spinner"></span> Detecting...</p>`;
+
+  const formData = new FormData();
+  formData.append("image", capturedBlob, "photo.jpg");
+
+  try {
+    const res = await fetch(`${API}/detect`, { method: "POST", body: formData });
+    const d = await res.json();
+    if (!res.ok) {
+      out.innerHTML = `<div class="error-box">${esc(d.error || "Detection failed")}</div>`;
+      return;
+    }
+    if (!d.predictions || d.predictions.length === 0) {
+      out.innerHTML = `<div class="error-box">No garment detected in this photo. Try a clearer, closer photo.</div>`;
+      return;
+    }
+
+    const top = d.predictions[0];
+    const rows = d.predictions.map(p => `
+      <div class="cam-pred-row">
+        <span class="cam-pred-name">${esc(p.label.replace(/_/g, ' '))}</span>
+        <span class="cam-pred-bar"><span class="cam-pred-fill" style="width:${Math.round(p.confidence * 100)}%"></span></span>
+        <span class="cam-pred-pct">${Math.round(p.confidence * 100)}%</span>
+      </div>`).join("");
+
+    out.innerHTML = `
+      <div class="product">
+        <div class="section">
+          <div class="section-title">Detected</div>
+          <div class="material-name" style="margin-bottom:12px;">${esc(top.label.replace(/_/g, ' '))}</div>
+          <div class="cam-result-list">${rows}</div>
+          <div class="subnote">Category detection from the photo — accuracy is still improving as the model trains on more data.</div>
+        </div>
+        <div class="section">
+          <div class="section-title">What fabric is it made of?</div>
+          <select id="camMaterialSelect" class="cam-select">
+            <option value="">Select a material...</option>
+          </select>
+          <div id="camMaterialResult" style="margin-top:14px;"></div>
+        </div>
+      </div>`;
+
+    loadMaterialOptions(top.label);
+  } catch (err) {
+    out.innerHTML = `<div class="error-box">Can't reach the backend, or the detection model isn't loaded yet.</div>`;
+  }
+}
+
+function loadMaterialOptions(detectedLabel) {
+  const select = document.getElementById("camMaterialSelect");
+  const commonMaterials = ["cotton", "polyester", "silk", "wool", "denim", "nylon", "linen", "leather", "viscose_rayon", "acrylic"];
+
+  commonMaterials.forEach(m => {
+    const opt = document.createElement("option");
+    opt.value = m;
+    opt.textContent = m.replace(/_/g, ' ');
+    select.appendChild(opt);
+  });
+
+  select.addEventListener("change", async function() {
+    const material = this.value;
+    const resultDiv = document.getElementById("camMaterialResult");
+    if (!material) { resultDiv.innerHTML = ""; return; }
+
+    resultDiv.innerHTML = `<p class="loading"><span class="spinner"></span> Loading eco score...</p>`;
+    try {
+      const res = await fetch(`${API}/eco-score/${encodeURIComponent(material)}`);
+      const data = await res.json();
+      if (!res.ok) {
+        resultDiv.innerHTML = `<div class="error-box">No data for this material.</div>`;
+        return;
+      }
+      const color = data.eco_score >= 70 ? '#2D6A4F' : data.eco_score >= 45 ? '#C77D2E' : '#B33A3A';
+      resultDiv.innerHTML = `
+        <div class="kv" style="align-items:center;">
+          <div>
+            <div style="font-weight:bold;">${esc(data.material_label)}</div>
+            <div style="font-size:0.78rem; color:#888; font-weight:normal;">${esc(data.eco_score_label)} · ${esc(data.carbon_footprint_kg_co2e_per_kg)} kg CO2e/kg</div>
+          </div>
+          <div style="font-size:1.6rem; font-weight:bold; color:${color};">${esc(data.eco_score)}<span style="font-size:0.8rem; color:#999;">/100</span></div>
+        </div>
+        <button class="cam-btn primary" style="width:100%; margin-top:10px;" onclick="addCameraToCart('${esc(detectedLabel)}', '${esc(material)}')">Add to cart</button>
+      `;
+    } catch (err) {
+      resultDiv.innerHTML = `<div class="error-box">Can't reach the backend.</div>`;
+    }
+  });
+}
+
+async function addCameraToCart(detectedLabel, material) {
+  const saved = localStorage.getItem("ecocart_user");
+  if (!saved) {
+    alert("Please log in first to add items to your cart.");
+    window.location.href = "login.html";
+    return;
+  }
+  const user = JSON.parse(saved);
+  const productName = `Detected: ${detectedLabel.replace(/_/g, ' ')}`;
+  const description = `${material.replace(/_/g, ' ')} fabric, identified from camera`;
+
+  try {
+    const res = await fetch(`${API}/cart/add`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ user_id: user.user_id, product_name: productName, product_description: description })
+    });
+    if (res.ok) {
+      alert("Added to cart! Check the Cart page to see it.");
+    } else {
+      alert("Could not add to cart.");
+    }
+  } catch (err) {
+    alert("Can't reach the backend.");
+  }
+}
+</script>
+
+</body>
+</html>

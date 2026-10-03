@@ -1,0 +1,478 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EcoCart AI — Discover</title>
+<style>
+  :root {
+    --forest: #1B4332; --leaf: #2D6A4F; --sage: #74A892; --cream: #F7F5EF;
+    --paper: #FFFFFF; --ink: #1C1C1C; --muted: #6B6B63; --amber: #C77D2E;
+    --clay: #B33A3A; --line: #E4E0D6;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: Arial, Helvetica, sans-serif;
+    background: var(--cream);
+    color: var(--ink);
+    display: flex;
+    min-height: 100vh;
+  }
+  a { color: inherit; text-decoration: none; }
+
+  .sidebar {
+    width: 220px; background: var(--forest); color: var(--cream);
+    flex-shrink: 0; display: flex; flex-direction: column; padding: 22px 16px;
+    position: sticky; top: 0; height: 100vh;
+  }
+  .side-logo { display: flex; align-items: center; gap: 10px; padding: 0 6px 24px; }
+  .side-logo-mark {
+    width: 32px; height: 32px; border-radius: 8px; background: rgba(255,255,255,0.15);
+    display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+  }
+  .side-logo-mark svg { width: 18px; height: 18px; }
+  .side-logo-text { font-family: Georgia, serif; font-size: 1.05rem; }
+  .side-section-label { font-size: 0.68rem; letter-spacing: 0.5px; color: var(--sage); padding: 14px 10px 8px; }
+  .side-link {
+    display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 6px;
+    font-size: 0.88rem; color: #D9E8DE; margin-bottom: 2px;
+  }
+  .side-link:hover { background: rgba(255,255,255,0.08); }
+  .side-link.active { background: rgba(255,255,255,0.14); color: white; font-weight: bold; }
+  .side-spacer { flex: 1; }
+  .side-note {
+    background: rgba(255,255,255,0.06); border-radius: 8px; padding: 14px;
+    font-size: 0.78rem; color: #C9D9CF; line-height: 1.5;
+  }
+  .side-note strong { display: block; color: white; font-size: 0.85rem; margin-bottom: 4px; }
+  .side-footer { font-size: 0.68rem; color: #8FA89B; padding: 14px 10px 0; }
+
+  .main-wrap { flex: 1; display: flex; min-width: 0; }
+  .content { flex: 1; padding: 28px 32px; min-width: 0; }
+
+  .top-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; font-size: 0.82rem; color: var(--muted); }
+  .breadcrumb span { color: var(--ink); font-weight: bold; }
+  .top-right { display: flex; align-items: center; gap: 14px; }
+  .live-dot { display: flex; align-items: center; gap: 6px; font-size: 0.78rem; color: var(--leaf); }
+  .live-dot::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: var(--leaf); display: inline-block; }
+  .avatar { width: 30px; height: 30px; border-radius: 50%; background: var(--forest); color: white; display: flex; align-items: center; justify-content: center; font-size: 0.75rem; font-weight: bold; }
+  #userGreeting { font-size: 0.8rem; color: var(--muted); }
+
+  .eyebrow { font-size: 0.72rem; color: var(--sage); letter-spacing: 0.5px; margin-bottom: 8px; }
+  .page-title { font-family: Georgia, serif; font-size: 2rem; color: var(--forest); margin-bottom: 6px; }
+  .page-sub { color: var(--muted); font-size: 0.95rem; margin-bottom: 24px; }
+
+  .stats-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 28px; }
+  .stat-card { background: var(--paper); border: 1px solid var(--line); border-radius: 8px; padding: 16px 18px; }
+  .stat-num { font-family: Georgia, serif; font-size: 1.6rem; color: var(--forest); }
+  .stat-label { font-size: 0.78rem; color: var(--ink); margin-top: 2px; }
+  .stat-sub { font-size: 0.7rem; color: var(--muted); margin-top: 2px; }
+
+  .catalog-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
+  .catalog-head h2 { font-family: Georgia, serif; font-size: 1.25rem; color: var(--forest); font-weight: normal; }
+  .catalog-head .count { font-size: 0.78rem; color: var(--muted); margin-left: 6px; }
+  .search-box { padding: 8px 12px; border: 1px solid var(--line); border-radius: 6px; font-size: 0.85rem; width: 220px; background: var(--paper); }
+
+  .cat-filters { display: flex; gap: 8px; margin-bottom: 18px; flex-wrap: wrap; }
+  .cat-filter {
+    padding: 7px 14px; border-radius: 16px; border: 1px solid var(--line); background: var(--paper);
+    font-size: 0.82rem; color: var(--ink); cursor: pointer;
+  }
+  .cat-filter.active { background: var(--forest); color: white; border-color: var(--forest); }
+  .cat-filter:hover:not(.active) { background: #f0eee8; }
+
+  .layout-row { display: flex; gap: 24px; align-items: flex-start; }
+  .product-grid { flex: 1; display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 18px; min-width: 0; }
+
+  .product-card {
+    background: var(--paper); border: 1px solid var(--line); border-radius: 10px; overflow: hidden;
+    cursor: pointer; transition: box-shadow 0.15s;
+  }
+  .product-card:hover { box-shadow: 0 4px 16px rgba(27,67,50,0.1); }
+  .product-card.selected { outline: 2px solid var(--leaf); }
+  .product-img-wrap { position: relative; width: 100%; aspect-ratio: 4/5; background: #f0eee8; }
+  .product-img-wrap img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .score-chip {
+    position: absolute; top: 10px; right: 10px; background: white; border-radius: 14px;
+    padding: 3px 9px; font-size: 0.72rem; font-weight: bold; box-shadow: 0 1px 4px rgba(0,0,0,0.15);
+  }
+  .score-chip.good { color: var(--forest); }
+  .score-chip.medium { color: var(--amber); }
+  .score-chip.poor { color: var(--clay); }
+  .product-info { padding: 12px 14px 14px; }
+  .product-brand-s { font-size: 0.72rem; color: var(--muted); }
+  .product-name-s { font-size: 0.92rem; font-weight: bold; margin: 2px 0 4px; }
+  .product-price-s { font-size: 0.82rem; color: var(--muted); }
+
+  .insight-panel {
+    width: 300px; flex-shrink: 0; background: var(--paper); border: 1px solid var(--line);
+    border-radius: 10px; padding: 20px; position: sticky; top: 28px;
+  }
+  .insight-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
+  .insight-head h3 { font-family: Georgia, serif; font-weight: normal; font-size: 1rem; color: var(--forest); }
+  .insight-cat-tag { font-size: 0.68rem; background: #E7F3EA; color: var(--forest); padding: 2px 9px; border-radius: 10px; }
+
+  .insight-empty { text-align: center; padding: 40px 10px; color: var(--muted); font-size: 0.85rem; }
+
+  .insight-product { display: flex; gap: 10px; align-items: center; margin-bottom: 16px; }
+  .insight-img { width: 52px; height: 52px; border-radius: 6px; object-fit: cover; flex-shrink: 0; }
+  .insight-brand { font-size: 0.7rem; color: var(--muted); }
+  .insight-name { font-size: 0.92rem; font-weight: bold; }
+  .insight-price { font-size: 0.8rem; color: var(--muted); }
+
+  .insight-score-box { background: var(--cream); border-radius: 8px; padding: 14px; margin-bottom: 14px; }
+  .insight-score-label { font-size: 0.7rem; color: var(--muted); }
+  .insight-score-sub { font-size: 0.72rem; color: var(--muted); }
+  .insight-score-row { display: flex; align-items: center; justify-content: space-between; }
+  .insight-score-num { font-family: Georgia, serif; font-size: 1.9rem; font-weight: bold; }
+  .insight-bar-wrap { height: 5px; background: #e4e0d6; border-radius: 3px; margin-top: 8px; overflow: hidden; }
+  .insight-bar { height: 100%; }
+
+  .insight-row { display: flex; align-items: flex-start; gap: 8px; padding: 9px 0; border-bottom: 1px solid #f0eee8; font-size: 0.82rem; }
+  .insight-row:last-of-type { border-bottom: none; }
+  .insight-row-label { color: var(--muted); flex-shrink: 0; width: 90px; }
+  .insight-row-val { font-weight: bold; text-align: right; flex: 1; }
+
+  .insight-note { font-size: 0.72rem; color: #999; margin-top: 12px; line-height: 1.5; }
+  .btn-row { display: flex; gap: 8px; margin-top: 14px; }
+  .add-cart-btn {
+    flex: 1; padding: 10px; background: var(--leaf); color: white;
+    border: none; border-radius: 6px; font-size: 0.85rem; cursor: pointer; font-weight: bold;
+  }
+  .add-cart-btn:hover { background: var(--forest); }
+  .add-cart-btn:disabled { background: #ccc; cursor: not-allowed; }
+  .add-ext-btn {
+    flex: 1; padding: 10px; background: var(--paper); color: var(--forest);
+    border: 1.5px solid var(--forest); border-radius: 6px; font-size: 0.85rem; cursor: pointer; font-weight: bold;
+  }
+  .add-ext-btn:hover { background: #f0eee8; }
+  .ext-status { font-size: 0.72rem; margin-top: 8px; text-align: center; }
+  .ext-status.ok { color: var(--forest); }
+  .ext-status.err { color: var(--clay); }
+
+  @media (max-width: 1100px) {
+    .layout-row { flex-direction: column; }
+    .insight-panel { width: 100%; position: static; }
+  }
+  @media (max-width: 760px) {
+    .sidebar { display: none; }
+    .stats-row { grid-template-columns: repeat(2, 1fr); }
+  }
+</style>
+</head>
+<body>
+
+<aside class="sidebar">
+  <div class="side-logo">
+    <span class="side-logo-mark">
+      <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M2 3h2l2.4 12.2a1.5 1.5 0 0 0 1.5 1.3h8.6a1.5 1.5 0 0 0 1.5-1.2L20 8H6" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+        <circle cx="9" cy="20" r="1.2" fill="white"/>
+        <circle cx="16" cy="20" r="1.2" fill="white"/>
+        <path d="M13 5c0-1.7 1.3-3 3-3 0 1.7-1.3 3-3 3Zm0 0c0 1.7-1.3 3-3 3 0-1.7 1.3-3 3-3Z" fill="white"/>
+      </svg>
+    </span>
+    <span class="side-logo-text">EcoCart AI</span>
+  </div>
+
+  <div class="side-section-label">YOUR WORKSPACE</div>
+  <a href="discover.html" class="side-link active">Discover</a>
+  <a href="checker.html" class="side-link">Checker</a>
+  <a href="cart.html" class="side-link">Cart</a>
+  <a href="index.html" class="side-link">Home</a>
+
+  <div class="side-spacer"></div>
+
+  <div class="side-note">
+    <strong>Small choices add up</strong>
+    Compare the impact behind everyday pieces before you buy.
+  </div>
+  <div class="side-footer">EcoCart AI — Clothing catalog demo</div>
+</aside>
+
+<div class="main-wrap">
+  <div class="content">
+    <div class="top-row">
+      <div class="breadcrumb">EcoCart AI / <span>Discover</span></div>
+      <div class="top-right">
+        <span class="live-dot">Live catalog</span>
+        <span id="userGreeting"></span>
+        <div class="avatar" id="avatarInitials">?</div>
+      </div>
+    </div>
+
+    <div class="eyebrow">THE CONSIDERED CLOSET</div>
+    <h1 class="page-title">Shop with a lighter footprint.</h1>
+    <p class="page-sub">Thoughtful materials. Clear impact. Better everyday choices.</p>
+
+    <div class="stats-row" id="statsRow"></div>
+
+    <div class="catalog-head">
+      <div><h2 style="display:inline;">Clothing catalog</h2><span class="count" id="catalogCount"></span></div>
+      <input type="text" class="search-box" id="searchBox" placeholder="Search pieces, brands, materials...">
+    </div>
+
+    <div class="cat-filters" id="catFilters"></div>
+
+    <div class="layout-row">
+      <div class="product-grid" id="productGrid"></div>
+
+      <div class="insight-panel">
+        <div class="insight-head">
+          <h3>Product insight</h3>
+          <span class="insight-cat-tag" id="insightCatTag" style="display:none;"></span>
+        </div>
+        <div id="insightBody">
+          <div class="insight-empty">Select a piece from the catalog to see its full sustainability profile.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const API = "http://127.0.0.1:5000";
+let allProducts = [];
+let activeCategory = "all";
+let selectedProduct = null;
+
+function esc(s) {
+  return String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+}
+
+const savedUser = localStorage.getItem("ecocart_user");
+let currentUser = null;
+if (savedUser) {
+  currentUser = JSON.parse(savedUser);
+  document.getElementById("userGreeting").textContent = "Hi, " + currentUser.full_name;
+  document.getElementById("avatarInitials").textContent = currentUser.full_name.slice(0, 2).toUpperCase();
+} else {
+  document.getElementById("avatarInitials").textContent = "G";
+  document.getElementById("userGreeting").innerHTML = '<a href="login.html" style="color:var(--leaf);">Log in</a>';
+}
+
+function tierOf(score) {
+  if (score === null || score === undefined) return "unknown";
+  if (score >= 70) return "good";
+  if (score >= 45) return "medium";
+  return "poor";
+}
+function colorOf(tier) {
+  return tier === "good" ? "#2D6A4F" : tier === "medium" ? "#C77D2E" : "#B33A3A";
+}
+
+async function loadStats() {
+  const res = await fetch(`${API}/catalog/stats`);
+  const s = await res.json();
+  document.getElementById("statsRow").innerHTML = `
+    <div class="stat-card"><div class="stat-num">${s.total_pieces}</div><div class="stat-label">Catalog pieces</div><div class="stat-sub">Across clothing essentials</div></div>
+    <div class="stat-card"><div class="stat-num">${s.avg_eco_score}</div><div class="stat-label">Average Eco Score</div><div class="stat-sub">Out of 100 points</div></div>
+    <div class="stat-card"><div class="stat-num">${s.high_impact_count}</div><div class="stat-label">Higher-impact picks</div><div class="stat-sub">Score of 75 and above</div></div>
+    <div class="stat-card"><div class="stat-num">${s.categories_count} / ${s.categories_count}</div><div class="stat-label">Categories covered</div><div class="stat-sub">Everyday wardrobe staples</div></div>
+  `;
+}
+
+async function loadProducts() {
+  const res = await fetch(`${API}/catalog`);
+  allProducts = await res.json();
+
+  const cats = [...new Set(allProducts.map(p => p.category))];
+  const filterLabels = { "all": "All pieces" };
+  cats.forEach(c => { filterLabels[c] = c.charAt(0).toUpperCase() + c.slice(1); });
+
+  document.getElementById("catFilters").innerHTML = Object.entries(filterLabels).map(([key, label]) =>
+    `<button class="cat-filter ${key === activeCategory ? 'active' : ''}" data-cat="${key}">${esc(label)}</button>`
+  ).join("");
+
+  document.querySelectorAll(".cat-filter").forEach(btn => {
+    btn.addEventListener("click", () => {
+      activeCategory = btn.dataset.cat;
+      document.querySelectorAll(".cat-filter").forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      renderGrid();
+    });
+  });
+
+  renderGrid();
+}
+
+function renderGrid() {
+  const search = document.getElementById("searchBox").value.trim().toLowerCase();
+  let filtered = allProducts.filter(p => activeCategory === "all" || p.category === activeCategory);
+  if (search) {
+    filtered = filtered.filter(p =>
+      p.name.toLowerCase().includes(search) ||
+      (p.brand || "").toLowerCase().includes(search) ||
+      p.material_label.toLowerCase().includes(search)
+    );
+  }
+
+  document.getElementById("catalogCount").textContent = filtered.length;
+
+  const grid = document.getElementById("productGrid");
+  if (filtered.length === 0) {
+    grid.innerHTML = `<div class="insight-empty">No pieces match your search.</div>`;
+    return;
+  }
+
+  grid.innerHTML = filtered.map(p => {
+    const tier = tierOf(p.eco_score);
+    const selected = selectedProduct && selectedProduct.product_id === p.product_id;
+    return `
+      <div class="product-card ${selected ? 'selected' : ''}" data-id="${p.product_id}">
+        <div class="product-img-wrap">
+          <img src="${esc(p.image_url)}" alt="${esc(p.name)}" loading="lazy">
+          <span class="score-chip ${tier}">${esc(p.eco_score ?? '—')}/100</span>
+        </div>
+        <div class="product-info">
+          <div class="product-brand-s">${esc(p.brand)}</div>
+          <div class="product-name-s">${esc(p.name)}</div>
+          <div class="product-price-s">${esc(p.category.charAt(0).toUpperCase() + p.category.slice(1))} · $${esc(p.price)}</div>
+        </div>
+      </div>`;
+  }).join("");
+
+  document.querySelectorAll(".product-card").forEach(card => {
+    card.addEventListener("click", () => {
+      const id = parseInt(card.dataset.id, 10);
+      selectedProduct = allProducts.find(p => p.product_id === id);
+      renderGrid();
+      renderInsight();
+    });
+  });
+}
+
+function renderInsight() {
+  const body = document.getElementById("insightBody");
+  const tag = document.getElementById("insightCatTag");
+
+  if (!selectedProduct) {
+    body.innerHTML = `<div class="insight-empty">Select a piece from the catalog to see its full sustainability profile.</div>`;
+    tag.style.display = "none";
+    return;
+  }
+
+  const p = selectedProduct;
+  const tier = tierOf(p.eco_score);
+  const color = colorOf(tier);
+  tag.style.display = "inline-block";
+  tag.textContent = p.category.charAt(0).toUpperCase() + p.category.slice(1);
+
+  body.innerHTML = `
+    <div class="insight-product">
+      <img class="insight-img" src="${esc(p.image_url)}" alt="${esc(p.name)}">
+      <div>
+        <div class="insight-brand">${esc(p.brand)}</div>
+        <div class="insight-name">${esc(p.name)}</div>
+        <div class="insight-price">$${esc(p.price)}</div>
+      </div>
+    </div>
+
+    <div class="insight-score-box">
+      <div class="insight-score-label">ECO SCORE</div>
+      <div class="insight-score-sub">${esc(p.eco_score_label)}</div>
+      <div class="insight-score-row">
+        <span></span>
+        <span class="insight-score-num" style="color:${color};">${esc(p.eco_score)}<span style="font-size:0.9rem;color:#999;">/100</span></span>
+      </div>
+      <div class="insight-bar-wrap"><div class="insight-bar" style="width:${p.eco_score}%; background:${color};"></div></div>
+      <div class="insight-note" style="margin-top:8px;">Based on material carbon and water footprint, cross-referenced against peer-reviewed sustainability studies.</div>
+    </div>
+
+    <div class="insight-row"><span class="insight-row-label">Material</span><span class="insight-row-val">${esc(p.material_label.replace(/_/g, ' '))}</span></div>
+    <div class="insight-row"><span class="insight-row-label">Packaging</span><span class="insight-row-val">${esc(p.packaging)}</span></div>
+    <div class="insight-row"><span class="insight-row-label">Carbon</span><span class="insight-row-val">${esc(p.carbon_footprint_kg_co2e_per_kg)} kg CO2e/kg</span></div>
+    <div class="insight-row"><span class="insight-row-label">Water</span><span class="insight-row-val">${p.water_usage_l_per_kg ? esc(p.water_usage_l_per_kg) + ' L/kg' : 'N/A'}</span></div>
+    <div class="insight-row"><span class="insight-row-label">Confidence</span><span class="insight-row-val">${esc(p.confidence_score)}%</span></div>
+
+    <div class="insight-note">Source: ${esc(p.source)}</div>
+
+    <div class="btn-row">
+      <button class="add-cart-btn" id="addCartBtn" ${currentUser ? '' : 'disabled'}>
+        ${currentUser ? 'Add to cart' : 'Log in first'}
+      </button>
+      <button class="add-ext-btn" id="addExtBtn">Add to Extension</button>
+    </div>
+    <div class="ext-status" id="extStatus"></div>
+  `;
+
+  const cartBtn = document.getElementById("addCartBtn");
+  if (currentUser) {
+    cartBtn.addEventListener("click", async () => {
+      cartBtn.textContent = "Adding...";
+      cartBtn.disabled = true;
+      try {
+        const res = await fetch(`${API}/cart/add`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            user_id: currentUser.user_id,
+            product_name: p.name,
+            product_description: `${p.material_label.replace(/_/g, ' ')}, ${p.brand}`,
+            price: p.price
+          })
+        });
+        if (res.ok) {
+          cartBtn.textContent = "Added ✓";
+          setTimeout(() => { cartBtn.textContent = "Add to cart"; cartBtn.disabled = false; }, 1500);
+        } else {
+          cartBtn.textContent = "Failed — try again";
+          cartBtn.disabled = false;
+        }
+      } catch (err) {
+        cartBtn.textContent = "Can't reach backend";
+        cartBtn.disabled = false;
+      }
+    });
+  }
+
+  document.getElementById("addExtBtn").addEventListener("click", () => {
+    const status = document.getElementById("extStatus");
+    status.textContent = "Sending to extension...";
+    status.className = "ext-status";
+
+    const item = {
+      material_label: p.material_label,
+      type: "fabric",
+      eco_score: p.eco_score,
+      eco_score_label: p.eco_score_label,
+      carbon_footprint_kg_co2e_per_kg: p.carbon_footprint_kg_co2e_per_kg,
+      water_usage_l_per_kg: p.water_usage_l_per_kg,
+      confidence_score: p.confidence_score,
+      source: p.source
+    };
+
+    window.postMessage({ type: "ECOCART_ADD_COMPARE", item }, "*");
+
+    const handler = (event) => {
+      if (event.source !== window) return;
+      if (!event.data || event.data.type !== "ECOCART_ADD_COMPARE_RESULT") return;
+      window.removeEventListener("message", handler);
+      if (event.data.ok) {
+        status.textContent = "Added to extension Compare tab ✓";
+        status.className = "ext-status ok";
+      } else {
+        status.textContent = "Could not reach extension.";
+        status.className = "ext-status err";
+      }
+    };
+    window.addEventListener("message", handler);
+
+    setTimeout(() => {
+      window.removeEventListener("message", handler);
+      if (status.textContent === "Sending to extension...") {
+        status.textContent = "Extension not detected. Install it and enable file access (see setup).";
+        status.className = "ext-status err";
+      }
+    }, 1500);
+  });
+}
+
+document.getElementById("searchBox").addEventListener("input", renderGrid);
+
+loadStats();
+loadProducts();
+</script>
+
+</body>
+</html>

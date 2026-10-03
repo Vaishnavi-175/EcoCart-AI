@@ -1,0 +1,35 @@
+# EcoCart AI - Project Status
+
+## Tech Stack
+- Backend: Python Flask (backend/app.py)
+- Database: PostgreSQL (database name: ecocart_ai)
+- Frontend: HTML/CSS/JS (frontend/ folder)
+
+## Completed Features
+1. Database: materials table (60 fibre/fabric records with carbon, water, eco-score data)
+2. Database: users table (signup/login with bcrypt password hashing)
+3. Database: cart_items table
+4. Backend API routes:
+   - GET /eco-score/<material_label>
+   - POST /signup
+   - POST /login
+   - POST /cart/add (auto-detects material from text description)
+   - GET /cart/<user_id>
+   - DELETE /cart/remove/<cart_item_id>
+5. Eco Score formula: 0-100 scale, based on carbon (60% weight) + water (40% weight)
+6. Frontend pages: index.html (eco-score checker), login.html, signup.html, cart.html
+
+## Datasets Used
+- Fashionpedia (clothing category detection - image dataset, not yet trained)
+- TextileNet (fabric/fiber material detection - image dataset, not yet trained)
+- Custom Sustainability Reference dataset (60 materials, compiled from WRAP UK, MDPI journal, etc.)
+
+## Not Yet Done
+- Camera/image-based detection (model training on Fashionpedia + TextileNet)
+- Browser extension
+- URL-based product scraping
+- Other categories (plastic, food, home essentials, paper)
+
+## Known Config
+- PostgreSQL password: [तुझा password टाक, पण ही file share करताना काढून टाक जर कोणाला पाठवशील]
+- Backend runs on: http://127.0.0.1:5000
