@@ -5,7 +5,7 @@ const $ = (id) => document.getElementById(id);
 const CANDIDATES = ["organic_cotton", "hemp", "linen", "tencel", "cotton", "wool", "silk", "viscose_rayon", "denim", "nylon", "polyester", "acrylic"];
 const CHIPS = ["cotton", "polyester", "denim", "silk", "wool", "linen", "nylon"];
 
-// Words found on shopping pages -> material key in your database
+// Words found on shopping pages -> material key in the database
 const ALIASES = {
   cotton: "cotton", polyester: "polyester", nylon: "nylon", polyamide: "nylon", silk: "silk",
   wool: "wool", merino: "wool", linen: "linen", flax: "linen", hemp: "hemp", acrylic: "acrylic",
@@ -13,27 +13,16 @@ const ALIASES = {
   elastane: "elastane", spandex: "elastane", lycra: "elastane", leather: "leather"
 };
 
-// General recycling / care guidance
-const INFO = {
-  cotton: { recycle: "Recyclable in textile recycling. Donate if wearable; worn-out cotton becomes cleaning rags or recycled fibre.", care: "Wash cold, line dry. Fewer washes means a longer life.", tip: "Choose organic or recycled cotton to cut water use." },
-  polyester: { recycle: "Plastic-based. Use textile take-back or recycling bins. Single-fibre polyester recycles best.", care: "Wash cold with a microfibre filter bag to stop microplastics.", tip: "Prefer recycled polyester (rPET) if you must buy it." },
-  denim: { recycle: "Take to textile recycling or donate. Old jeans can be upcycled into bags or patches.", care: "Wash rarely, cold, inside out.", tip: "Look for low-water or recycled denim." },
-  silk: { recycle: "Natural fibre, compostable if undyed and 100% silk. Donate if in good shape.", care: "Hand wash or dry clean; avoid heat.", tip: "Silk lasts long when cared for properly." },
-  wool: { recycle: "Wool is often re-spun into new yarn. Natural wool is compostable.", care: "Air it out; wash rarely in cold water.", tip: "Choose recycled or certified-responsible wool." },
-  linen: { recycle: "Biodegradable. Donate or textile-recycle; scraps can be composted.", care: "Wash cold; it gets softer with age.", tip: "One of the lower-impact fabrics." },
-  nylon: { recycle: "Plastic-based. Needs special textile recycling.", care: "Cold wash in a filter bag to limit microplastics.", tip: "Choose recycled nylon where possible." },
-  viscose_rayon: { recycle: "Semi-synthetic from wood pulp, limited recycling. Donate if wearable.", care: "Gentle wash, don't wring when wet.", tip: "Look for certified (FSC / Lyocell-type) viscose." },
-  leather: { recycle: "Hard to recycle. Repair, resell or donate.", care: "Condition regularly; avoid soaking.", tip: "Buy less, buy durable." },
-  acrylic: { recycle: "Plastic-based, rarely recycled. Use textile take-back schemes.", care: "Cold wash, low-heat dry; it sheds microplastics.", tip: "Prefer wool or recycled blends instead." }
-};
-const DEFAULT_INFO = { recycle: "Donate if wearable, otherwise use a textile recycling bin. Don't put textiles in general waste.", care: "Wash cold, less often, and air dry.", tip: "The most sustainable garment is the one you already own." };
-
 function esc(s) {
   return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 const pretty = (s) => String(s).replace(/_/g, " ");
 const colorFor = (n) => (n >= 70 ? "#1a9b66" : n >= 45 ? "#e29a2e" : "#d65353");
 const skeleton = () => `<div class="skel"><i style="width:45%"></i><i style="width:80%"></i><i style="width:60%"></i><i style="width:90%"></i></div>`;
+function tierText(score) { return score >= 70 ? "Good choice" : score >= 45 ? "Average impact" : "High impact"; }
+const fmt = (n, d = 1) => (n == null || isNaN(n) ? "N/A" : Number(n).toFixed(d).replace(/\.0+$/, ""));
+
+let currentGarment = "top"; // remembered garment type
 
 // ---------- Tabs ----------
 document.querySelectorAll(".tab").forEach((t) => t.addEventListener("click", () => showTab(t.dataset.tab)));
@@ -74,24 +63,8 @@ function animate(root) {
 function scaleHTML(score) {
   return `<div class="scale"><i data-left="${Math.max(2, Math.min(98, score))}"></i></div>`;
 }
-function tierText(score) { return score >= 70 ? "Good choice" : score >= 45 ? "Average impact" : "High impact"; }
-
-function infoBlock(key, blend) {
-  const info = INFO[key] || DEFAULT_INFO;
-  return `
-    <div class="sec">♻ Recycling &amp; care</div>
-    ${blend ? `<div class="tip"><b>Mixed fibres:</b> blends are much harder to recycle than single-fibre clothes. Pure fabrics are easier to reuse.</div>` : ""}
-    <div class="tip"><b>Recycling:</b> ${esc(info.recycle)}</div>
-    <div class="tip"><b>Care:</b> ${esc(info.care)}</div>
-    <div class="tip"><b>Tip:</b> ${esc(info.tip)}</div>`;
-}
-
-function equivHTML(carbon, water) {
-  if (carbon == null || isNaN(carbon)) return "";
-  const co2 = (carbon * 0.25).toFixed(2);
-  const km = Math.round((carbon * 0.25) / 0.17);
-  const w = water ? Math.round(water * 0.25) : null;
-  return `<div class="equiv">A typical <b>250 g</b> garment (like a T-shirt) of this fabric ≈ <b>${co2} kg CO₂e</b>${w ? ` and <b>${w} L</b> of water` : ""}. That is roughly <b>${km} km</b> driven in an average petrol car.</div>`;
+function stars(n) {
+  return "★".repeat(n) + `<span class="off">${"★".repeat(5 - n)}</span>`;
 }
 
 async function loadAlternatives(score, carbon, exclude, box) {
@@ -122,41 +95,109 @@ async function loadAlternatives(score, carbon, exclude, box) {
     `<div class="tip">Even better: buy second-hand, or pick recycled / organic versions of these.</div>`;
 }
 
-// ---------- Single material result ----------
-function renderMaterial(data, mount) {
-  const score = data.eco_score ?? 0;
+// =====================================================================
+// THE GARMENT REPORT - one card used by Material, Barcode, Camera, Scan, Bag
+// parts: [{ key, pct, data }]   (single material = one part with pct 100)
+// =====================================================================
+function renderReport(mount, opts) {
+  const parts = opts.parts;
+  const r = buildReport(parts, currentGarment);
+  const score = r.score ?? 0;
   const color = colorFor(score);
-  const key = (data.material_label || "").toLowerCase();
   const poor = score < 60;
+  const blend = parts.length > 1;
+  const total = parts.reduce((s, p) => s + p.pct, 0) || 1;
+  const label = parts.map((p) => (blend ? p.pct + "% " : "") + pretty(p.key)).join(" / ");
+
+  const blendRows = blend ? `<div class="comp">${parts.map((p) => `
+      <div class="r"><span class="n">${esc(pretty(p.key))}</span>
+        <span class="bar"><em style="width:${Math.round((p.pct / total) * 100)}%;background:${colorFor(p.data.eco_score)}"></em></span>
+        <span class="v">${p.pct}% · score ${esc(p.data.eco_score)}</span></div>`).join("")}</div>` : "";
+
+  const garmentOptions = Object.entries(GARMENTS).map(([k, g]) =>
+    `<option value="${k}" ${k === currentGarment ? "selected" : ""}>${esc(g.label)} (~${Math.round(g.kg * 1000)} g)</option>`).join("");
+
+  const healthRows = r.micro == null ? `<div class="tip">This fabric isn't in our clothing reference table yet.</div>` : `
+    <div class="kv"><span class="k">Microplastic shedding</span><span class="v"><span class="px ${MICRO_CLASS[r.micro]}">${MICRO_LABEL[r.micro]}</span></span></div>
+    <div class="kv"><span class="k">Durability</span><span class="v"><span class="stars">${stars(r.durability)}</span> <small>~${r.wears} wears</small></span></div>
+    <div class="kv"><span class="k">Recyclability</span><span class="v"><span class="px ${r.recyc === "High" ? "ok" : r.recyc === "Medium" ? "mid" : "bad"}">${r.recyc}</span></span></div>
+    <div class="kv"><span class="k">Biodegradable</span><span class="v"><span class="px ${r.bio ? "ok" : "bad"}">${r.bio ? "Yes" : "No"}</span></span></div>
+    ${r.mixedNote ? `<div class="tip" style="margin-top:8px"><b>Blend note:</b> ${esc(r.mixedNote)}</div>` : ""}`;
+
+  const careBlock = r.micro == null ? "" : `
+    <div class="sec">🧺 Care guide</div>
+    <div class="care">
+      <div><small>Wash</small><b>${r.wash != null ? "≤ " + r.wash + "°C" : "Don't machine wash"}</b></div>
+      <div><small>Dry</small><b>${esc(r.dry)}</b></div>
+      <div><small>Tip</small><b>${r.micro >= 2 ? "Use filter bag" : "Wash less often"}</b></div>
+    </div>
+    ${r.careList.map((c) => `<div class="tip">${esc(c)}</div>`).join("")}`;
+
+  const certBlock = !r.certs.length ? "" : `
+    <div class="sec">🏷 Look for these labels</div>
+    <div class="certs">${r.certs.map((c) => `<span>${esc(c)}</span>`).join("")}</div>`;
+
+  const eolBlock = !r.eolList.length ? "" : `
+    <div class="sec">♻ End of life</div>
+    ${r.eolList.map((c) => `<div class="tip">${esc(c)}</div>`).join("")}`;
 
   mount.innerHTML = `
     <div class="card">
-      <h3>${esc(pretty(data.material_label))}</h3>
-      <div class="sub">${data.type === "fibre" ? "Fibre" : "Fabric"} · ${esc(data.impact_category || "")}</div>
+      <h3>${esc(opts.title || label)}</h3>
+      <div class="sub">${esc(opts.subtitle || (blend ? "Weighted score from the fabric composition" : ""))}</div>
       <div class="hero">
         ${ringHTML(score, color)}
         <div>
-          <div class="verdict" style="color:${color}">${esc(data.eco_score_label || tierText(score))}</div>
-          <div class="pill">Data confidence ${esc(data.confidence_score ?? "—")}%</div>
+          <div class="verdict" style="color:${color}">${tierText(score)}</div>
+          <div class="pill">${blend ? "Blend of " + parts.length + " fibres" : "Single fibre"}</div>
+          ${r.confidence != null ? `<div class="pill">Data confidence ${Math.round(r.confidence)}%</div>` : ""}
         </div>
       </div>
       ${scaleHTML(score)}
-      <div class="metrics">
-        <div><small>Carbon</small><b>${esc(data.carbon_footprint_kg_co2e_per_kg ?? "—")} kg/kg</b></div>
-        <div><small>Water</small><b>${data.water_usage_l_per_kg ? esc(data.water_usage_l_per_kg) + " L/kg" : "N/A"}</b></div>
-        <div><small>Type</small><b style="text-transform:capitalize">${esc(data.type || "—")}</b></div>
+      ${blendRows}
+
+      <div class="sec">👕 Impact of this garment</div>
+      <select id="garmentSel">${garmentOptions}</select>
+      <div class="metrics" style="margin-top:8px">
+        <div><small>Carbon</small><b>${fmt(r.garmentCarbon, 2)} kg</b></div>
+        <div><small>Water</small><b>${r.garmentWater != null ? Math.round(r.garmentWater) + " L" : "N/A"}</b></div>
+        <div><small>Per wear</small><b>${r.carbonPerWearG != null ? Math.round(r.carbonPerWearG) + " g" : "N/A"}</b></div>
       </div>
-      ${equivHTML(data.carbon_footprint_kg_co2e_per_kg, data.water_usage_l_per_kg)}
-      <div class="banner ${poor ? "warn" : "good"}"><span>${poor ? "⚠" : "✓"}</span><span>${poor ? "High-impact material. Greener options are listed below." : "A good choice. Wear it long and care for it well."}</span></div>
+      ${r.garmentCarbon != null ? `<div class="equiv">One ${esc(r.garment.label.toLowerCase())} of this fabric ≈ <b>${fmt(r.garmentCarbon, 2)} kg CO₂e</b>, about <b>${Math.round(r.km)} km</b> in a petrol car. ${r.wears ? `Worn <b>~${r.wears} times</b>, that is <b>${Math.round(r.carbonPerWearG)} g CO₂e per wear</b>. Every extra wear lowers it.` : ""}</div>` : ""}
+      <div class="banner ${poor ? "warn" : "good"}"><span>${poor ? "⚠" : "✓"}</span><span>${poor ? "High-impact fabric. Greener options are listed below." : "A good choice. Wear it long and care for it well."}</span></div>
+
       <div id="altBox"></div>
-      ${infoBlock(key, false)}
-      <div class="sub" style="margin-top:8px">Source: ${esc(data.source || "")}</div>
+
+      <div class="sec">🔬 Fabric health check</div>
+      ${healthRows}
+      ${certBlock}
+      ${careBlock}
+      ${eolBlock}
+      ${r.unknown.length ? `<div class="sub" style="margin-top:8px">No clothing-table data for: ${esc(r.unknown.map(pretty).join(", "))}</div>` : ""}
+      <div class="sub" style="margin-top:10px">Score, carbon and water: our materials database. Durability, microplastics, recyclability, labels and care: indicative reference table. Garment weight and wears are assumptions.</div>
       <button class="btn ghost full" id="addCmp">+ Add to Compare</button>
     </div>`;
 
-  mount.querySelector("#addCmp").addEventListener("click", () => addToCompare(data));
+  mount.querySelector("#garmentSel").addEventListener("change", (e) => {
+    currentGarment = e.target.value;
+    renderReport(mount, opts);
+  });
+  mount.querySelector("#addCmp").addEventListener("click", () =>
+    addToCompare({
+      material_label: label, eco_score: Math.round(score), carbon_footprint_kg_co2e_per_kg: r.carbonKg != null ? Number(r.carbonKg.toFixed(1)) : null,
+      water_usage_l_per_kg: r.waterKg != null ? Math.round(r.waterKg) : null, perWearG: r.carbonPerWearG != null ? Math.round(r.carbonPerWearG) : null
+    }));
   animate(mount);
-  if (poor) loadAlternatives(score, data.carbon_footprint_kg_co2e_per_kg, [key], mount.querySelector("#altBox"));
+  if (poor) loadAlternatives(score, r.carbonKg, parts.map((p) => p.key), mount.querySelector("#altBox"));
+}
+
+function renderMaterial(data, mount, opts) {
+  const key = String(data.material_label || "").toLowerCase();
+  renderReport(mount, {
+    title: (opts && opts.title) || pretty(key),
+    subtitle: (opts && opts.subtitle) || `${data.type === "fibre" ? "Fibre" : "Fabric"}${data.impact_category ? " · " + data.impact_category : ""}`,
+    parts: [{ key, pct: 100, data }]
+  });
 }
 
 // ---------- Material tab ----------
@@ -185,10 +226,27 @@ async function checkMaterial() {
 // ---------- Scan the current shopping page ----------
 $("scanBtn").addEventListener("click", scanPage);
 
+function findParts(t) {
+  const f = {};
+  const re = /(\d{1,3})\s*%\s*(?:recycled\s+|organic\s+|virgin\s+)?([a-z]+)/g;
+  let mm;
+  while ((mm = re.exec(t)) !== null) {
+    const key = ALIASES[mm[2]];
+    const pct = parseInt(mm[1], 10);
+    if (key && pct > 0 && pct <= 100 && !(key in f)) f[key] = pct;
+  }
+  return Object.entries(f).map(([k, p]) => ({ key: k, pct: p }));
+}
+
+async function lookupParts(parts) {
+  const looked = await Promise.all(parts.map(async (p) => ({ ...p, data: await getScore(p.key).catch(() => null) })));
+  return looked.filter((p) => p.data && typeof p.data.eco_score === "number");
+}
+
 async function scanPage() {
   const out = $("materialOut");
   out.innerHTML = skeleton();
-  let text = "";
+  let text = "", allText = "";
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     const [res] = await chrome.scripting.executeScript({
@@ -197,30 +255,16 @@ async function scanPage() {
     });
     const r = res && res.result ? res.result : { visible: "", all: "" };
     text = r.visible.toLowerCase();
-    var allText = r.all.toLowerCase();
+    allText = r.all.toLowerCase();
   } catch (e) {
     out.innerHTML = `<div class="err">Can't read this page (browser pages like chrome:// are blocked). Open a product page and try again.</div>`;
     return;
   }
 
-  // Find things like "60% cotton", "40% recycled polyester"
-  const findParts = (t) => {
-    const f = {};
-    const re = /(\d{1,3})\s*%\s*(?:recycled\s+|organic\s+|virgin\s+)?([a-z]+)/g;
-    let mm;
-    while ((mm = re.exec(t)) !== null) {
-      const key = ALIASES[mm[2]];
-      const pct = parseInt(mm[1], 10);
-      if (key && pct > 0 && pct <= 100 && !(key in f)) f[key] = pct;
-    }
-    return Object.entries(f).map(([k, p]) => ({ key: k, pct: p }));
-  };
-
   let parts = findParts(text);
   if (!parts.length) { parts = findParts(allText); if (parts.length) text = allText; }
 
   if (!parts.length) {
-    // No percentages, so use the most-mentioned material word
     const counts = {};
     Object.keys(ALIASES).forEach((w) => {
       const n = (text.match(new RegExp("\\b" + w + "\\b", "g")) || []).length;
@@ -232,70 +276,18 @@ async function scanPage() {
       return;
     }
     $("materialInput").value = top[0];
-    out.innerHTML = `<div class="banner good"><span>🔍</span><span>No composition % on this page. The most mentioned fabric is <b>${esc(pretty(top[0]))}</b>.</span></div><div id="scanSingle"></div>`;
+    out.innerHTML = `<div class="banner good"><span>🔍</span><span>No composition % on this page. The most mentioned fabric is <b>${esc(pretty(top[0]))}</b> (estimate).</span></div><div id="scanSingle"></div>`;
     const data = await getScore(top[0]).catch(() => null);
     if (data) renderMaterial(data, out.querySelector("#scanSingle"));
     return;
   }
 
-  // Look up every component, then compute a weighted score
-  const looked = await Promise.all(parts.map(async (p) => ({ ...p, data: await getScore(p.key).catch(() => null) })));
-  const ok = looked.filter((p) => p.data && typeof p.data.eco_score === "number");
-  if (!ok.length) {
-    out.innerHTML = `<div class="err">Found fabrics on the page, but none are in our database yet.</div>`;
-    return;
-  }
-  renderBlend(ok, out);
+  const ok = await lookupParts(parts);
+  if (!ok.length) { out.innerHTML = `<div class="err">Found fabrics on the page, but none are in our database yet.</div>`; return; }
+  renderReport(out, { title: "This product's fabric", parts: ok });
 }
 
-function renderBlend(parts, mount, title) {
-  const total = parts.reduce((s, p) => s + p.pct, 0);
-  const wavg = (f) => parts.reduce((s, p) => s + (Number(f(p.data)) || 0) * p.pct, 0) / total;
-  const score = wavg((d) => d.eco_score);
-  const carbon = wavg((d) => d.carbon_footprint_kg_co2e_per_kg);
-  const water = wavg((d) => d.water_usage_l_per_kg);
-  const color = colorFor(score);
-  const poor = score < 60;
-  const main = parts.slice().sort((a, b) => b.pct - a.pct)[0];
-  const label = parts.map((p) => `${p.pct}% ${pretty(p.key)}`).join(" / ");
-
-  const rows = parts.map((p) => `
-    <div class="r"><span class="n">${esc(pretty(p.key))}</span>
-      <span class="bar"><em style="width:${Math.round((p.pct / total) * 100)}%;background:${colorFor(p.data.eco_score)}"></em></span>
-      <span class="v">${p.pct}% · score ${esc(p.data.eco_score)}</span></div>`).join("");
-
-  mount.innerHTML = `
-    <div class="card">
-      <h3>${title ? esc(title) : "This product's fabric"}</h3>
-      <div class="sub">Weighted score from the composition found on the page</div>
-      <div class="hero">
-        ${ringHTML(score, color)}
-        <div>
-          <div class="verdict" style="color:${color}">${tierText(score)}</div>
-          <div class="pill">${parts.length > 1 ? "Blend of " + parts.length + " fibres" : "Single fibre"}</div>
-        </div>
-      </div>
-      ${scaleHTML(score)}
-      <div class="comp">${rows}</div>
-      <div class="metrics" style="margin-top:12px">
-        <div><small>Carbon</small><b>${carbon.toFixed(1)} kg/kg</b></div>
-        <div><small>Water</small><b>${water ? Math.round(water) + " L/kg" : "N/A"}</b></div>
-        <div><small>Parts</small><b>${parts.length}</b></div>
-      </div>
-      ${equivHTML(carbon, water)}
-      <div class="banner ${poor ? "warn" : "good"}"><span>${poor ? "⚠" : "✓"}</span><span>${poor ? "This product has a high-impact fabric mix." : "Looks like a reasonable fabric choice."}</span></div>
-      <div id="altBox"></div>
-      ${infoBlock(main.key, parts.length > 1)}
-      <button class="btn ghost full" id="addCmp">+ Add to Compare</button>
-    </div>`;
-
-  animate(mount);
-  mount.querySelector("#addCmp").addEventListener("click", () =>
-    addToCompare({ material_label: label, eco_score: Math.round(score), eco_score_label: tierText(score), carbon_footprint_kg_co2e_per_kg: Number(carbon.toFixed(1)), water_usage_l_per_kg: Math.round(water), confidence_score: Math.round(wavg((d) => d.confidence_score)) }));
-  if (poor) loadAlternatives(score, carbon, parts.map((p) => p.key), mount.querySelector("#altBox"));
-}
-
-// ---------- Barcode tab ----------
+// ---------- Barcode tab (clothing only) ----------
 $("barcodeBtn").addEventListener("click", checkBarcode);
 $("barcodeInput").addEventListener("keydown", (e) => { if (e.key === "Enter") checkBarcode(); });
 
@@ -306,30 +298,40 @@ async function checkBarcode() {
   out.innerHTML = skeleton();
   try {
     const res = await fetch(`${API}/barcode/${encodeURIComponent(code)}`);
-    const d = await res.json();
-    if (!res.ok) { out.innerHTML = `<div class="err">${esc(d.error || "Product not found")}</div>`; return; }
+    const d = await res.json().catch(() => ({}));
+    const isClothing = res.ok && d && d.material_label && typeof d.eco_score === "number";
 
-    if (d.material_label && typeof d.eco_score === "number") {
-      out.innerHTML = `<div class="card"><h3>${esc(d.name || "Product")}</h3><div class="sub">${esc(d.brand || "")}</div></div><div id="bcMat"></div>`;
-      renderMaterial(d, out.querySelector("#bcMat"));
+    if (!isClothing) {
+      out.innerHTML = `<div class="err"><b>Not in our clothing catalog.</b><br>No free public database exists for clothing barcodes, because retailers keep them private. Check the fabric from the care label instead (Material tab).</div>`;
       return;
     }
-
-    const img = d.image ? `<img src="${esc(d.image)}" style="width:68px;height:68px;object-fit:contain;border-radius:12px;background:#f4f7f5;margin-right:12px" alt="">` : "";
-    out.innerHTML = `
-      <div class="card">
-        <div style="display:flex;align-items:center">${img}
-          <div><h3>${esc(d.name || "Unnamed product")}</h3><div class="sub">${esc(d.brand || "Brand unknown")}${d.quantity ? " · " + esc(d.quantity) : ""}</div></div>
-        </div>
-        <div class="banner ${d.env_grade ? "good" : "warn"}"><span>🌍</span><span>${d.env_grade ? "Environmental grade: <b>" + esc(String(d.env_grade).toUpperCase()) + "</b>" : "Environmental grade not available for this product. We don't guess."}</span></div>
-        ${d.nutriscore_grade ? `<div class="tip" style="margin-top:8px"><b>Nutri-Score:</b> ${esc(String(d.nutriscore_grade).toUpperCase())}</div>` : ""}
-        ${d.packaging_text ? `<div class="tip" style="margin-top:8px"><b>Packaging:</b> ${esc(d.packaging_text)}</div>` : ""}
-        <div class="sub" style="margin-top:8px">Source: ${esc(d.source || "open database")}</div>
-      </div>`;
+    renderMaterial(d, out, { title: d.name || "Clothing product", subtitle: [d.brand, d.category].filter(Boolean).join(" · ") || "From the EcoCart catalog" });
   } catch (e) {
     out.innerHTML = `<div class="err">Can't reach the backend. Run <b>python app.py</b>.</div>`;
   }
 }
+
+// Read a barcode from a photo (works only where the browser supports BarcodeDetector)
+$("bcPhotoBtn").addEventListener("click", () => $("bcPhoto").click());
+$("bcPhoto").addEventListener("change", async (e) => {
+  const f = e.target.files[0];
+  const out = $("barcodeOut");
+  if (!f) return;
+  if (!("BarcodeDetector" in window)) {
+    out.innerHTML = `<div class="err">This browser can't read barcodes from a photo. Type the digits instead.</div>`;
+    return;
+  }
+  try {
+    const det = new BarcodeDetector();
+    const bmp = await createImageBitmap(f);
+    const codes = await det.detect(bmp);
+    if (!codes.length) { out.innerHTML = `<div class="err">No barcode found in the photo. Try a closer, sharper picture.</div>`; return; }
+    $("barcodeInput").value = codes[0].rawValue;
+    checkBarcode();
+  } catch (err) {
+    out.innerHTML = `<div class="err">Couldn't read the barcode from this photo. Type the digits instead.</div>`;
+  }
+});
 
 // ---------- Camera tab ----------
 let photo = null;
@@ -357,6 +359,8 @@ $("camDetect").addEventListener("click", async () => {
     if (!res.ok) { out.innerHTML = `<div class="err">${esc(d.error || "Detection failed")}</div>`; return; }
     if (!d.predictions || !d.predictions.length) { out.innerHTML = `<div class="err">No garment detected. Try a clearer, closer photo.</div>`; return; }
 
+    currentGarment = mapGarment(d.predictions[0].label); // detected garment sets the weight used below
+
     const rows = d.predictions.slice(0, 3).map((p) =>
       `<div class="pbar"><b>${esc(pretty(p.label))}</b><i><em style="width:${Math.round(p.confidence * 100)}%"></em></i><span>${Math.round(p.confidence * 100)}%</span></div>`).join("");
 
@@ -364,7 +368,7 @@ $("camDetect").addEventListener("click", async () => {
       <div class="card">
         <h3>Detected: ${esc(pretty(d.predictions[0].label))}</h3>
         ${rows}
-        <div class="sub" style="margin-top:8px">Model accuracy is still improving as it trains on more data.</div>
+        <div class="sub" style="margin-top:8px">Our YOLO model is trained on a subset of Fashionpedia, so accuracy is still improving.</div>
         <div class="sec">What is it made of?</div>
         <select id="camMat"><option value="">Select fabric...</option>
           ${["cotton", "polyester", "silk", "wool", "denim", "nylon", "linen", "viscose_rayon", "acrylic"].map((m) => `<option value="${m}">${pretty(m)}</option>`).join("")}
@@ -393,9 +397,9 @@ async function addToCompare(data) {
   const items = await getItems();
   if (!items.some((i) => i.material_label === data.material_label)) {
     items.push({
-      material_label: data.material_label, eco_score: data.eco_score, eco_score_label: data.eco_score_label,
+      material_label: data.material_label, eco_score: data.eco_score,
       carbon_footprint_kg_co2e_per_kg: data.carbon_footprint_kg_co2e_per_kg,
-      water_usage_l_per_kg: data.water_usage_l_per_kg, confidence_score: data.confidence_score
+      water_usage_l_per_kg: data.water_usage_l_per_kg, perWearG: data.perWearG ?? null
     });
     await chrome.storage.local.set({ items });
   }
@@ -408,6 +412,39 @@ async function updateCount() {
   const d = await chrome.storage.local.get({ cart: [] });
   $("bagCount").textContent = d.cart.length;
 }
+
+async function renderCompare() {
+  const items = await getItems();
+  const list = $("cmpList");
+  $("cmpClear").style.display = items.length ? "block" : "none";
+  if (!items.length) {
+    list.innerHTML = `<div class="empty"><span class="big">⚖</span>Nothing to compare yet.<br>Analyse a fabric and tap "Add to Compare".</div>`;
+    return;
+  }
+  const best = Math.max(...items.map((i) => i.eco_score ?? -1));
+  list.innerHTML = items.map((i, idx) => `
+    <div class="cmp">
+      <div style="min-width:0">
+        <b style="text-transform:capitalize">${esc(pretty(i.material_label))}</b>${i.eco_score === best && items.length > 1 ? `<span class="best">BEST</span>` : ""}
+        <div class="sub">CO₂ ${esc(i.carbon_footprint_kg_co2e_per_kg ?? "—")} kg/kg · Water ${i.water_usage_l_per_kg ? esc(i.water_usage_l_per_kg) + " L/kg" : "N/A"}${i.perWearG != null ? " · " + esc(i.perWearG) + " g/wear" : ""}</div>
+      </div>
+      <div style="text-align:right">
+        <div style="font-weight:800;font-size:18px;color:${colorFor(i.eco_score)}">${esc(i.eco_score ?? "—")}</div>
+        <button class="x" data-i="${idx}">remove</button>
+      </div>
+    </div>`).join("");
+  list.querySelectorAll(".x").forEach((b) => b.addEventListener("click", async () => {
+    const arr = await getItems();
+    arr.splice(Number(b.dataset.i), 1);
+    await chrome.storage.local.set({ items: arr });
+    renderCompare(); updateCount();
+  }));
+}
+
+$("cmpClear").addEventListener("click", async () => {
+  await chrome.storage.local.set({ items: [] });
+  renderCompare(); updateCount();
+});
 
 // ---------- Bag: products captured when you press "Add to bag" on any website ----------
 async function renderBag() {
@@ -435,7 +472,7 @@ async function renderBag() {
         ${hasScore ? `<div class="sc" style="background:${colorFor(c.score)}">${c.score}</div>` : `<div class="sc" style="background:#b7c5bc">?</div>`}
       </div>
       <div class="acts">
-        <button data-act="details" data-i="${i}">Details &amp; alternatives</button>
+        <button data-act="details" data-i="${i}">Full report</button>
         <button data-act="compare" data-i="${i}">+ Compare</button>
         <button class="rm" data-act="remove" data-i="${i}">Remove</button>
       </div>
@@ -452,7 +489,7 @@ async function renderBag() {
       renderBag(); updateCount();
     } else if (b.dataset.act === "compare") {
       if (typeof item.score !== "number") return;
-      addToCompare({ material_label: item.label || item.title, eco_score: item.score, eco_score_label: tierText(item.score), carbon_footprint_kg_co2e_per_kg: item.carbon, water_usage_l_per_kg: item.water, confidence_score: null });
+      addToCompare({ material_label: item.label || item.title, eco_score: item.score, carbon_footprint_kg_co2e_per_kg: item.carbon, water_usage_l_per_kg: item.water });
     } else {
       openBagItem(item);
     }
@@ -468,10 +505,9 @@ async function openBagItem(item) {
     return;
   }
   try {
-    const looked = await Promise.all(item.parts.map(async (p) => ({ ...p, data: await getScore(p.key).catch(() => null) })));
-    const ok = looked.filter((p) => p.data && typeof p.data.eco_score === "number");
+    const ok = await lookupParts(item.parts);
     if (!ok.length) { out.innerHTML = `<div class="err">Those fabrics aren't in our database yet, or the backend isn't running.</div>`; return; }
-    renderBlend(ok, out, item.title);
+    renderReport(out, { title: item.title, parts: ok });
   } catch (e) {
     out.innerHTML = `<div class="err">Can't reach the backend. Run <b>python app.py</b>.</div>`;
   }
@@ -480,39 +516,6 @@ async function openBagItem(item) {
 $("bagClear").addEventListener("click", async () => {
   await chrome.storage.local.set({ cart: [] });
   renderBag(); updateCount();
-});
-
-async function renderCompare() {
-  const items = await getItems();
-  const list = $("cmpList");
-  $("cmpClear").style.display = items.length ? "block" : "none";
-  if (!items.length) {
-    list.innerHTML = `<div class="empty"><span class="big">⚖</span>Nothing to compare yet.<br>Analyse a fabric and tap "Add to Compare".</div>`;
-    return;
-  }
-  const best = Math.max(...items.map((i) => i.eco_score ?? -1));
-  list.innerHTML = items.map((i, idx) => `
-    <div class="cmp">
-      <div style="min-width:0">
-        <b style="text-transform:capitalize">${esc(pretty(i.material_label))}</b>${i.eco_score === best && items.length > 1 ? `<span class="best">BEST</span>` : ""}
-        <div class="sub">CO₂ ${esc(i.carbon_footprint_kg_co2e_per_kg ?? "—")} kg/kg · Water ${i.water_usage_l_per_kg ? esc(i.water_usage_l_per_kg) + " L/kg" : "N/A"}</div>
-      </div>
-      <div style="text-align:right">
-        <div style="font-weight:800;font-size:18px;color:${colorFor(i.eco_score)}">${esc(i.eco_score ?? "—")}</div>
-        <button class="x" data-i="${idx}">remove</button>
-      </div>
-    </div>`).join("");
-  list.querySelectorAll(".x").forEach((b) => b.addEventListener("click", async () => {
-    const arr = await getItems();
-    arr.splice(Number(b.dataset.i), 1);
-    await chrome.storage.local.set({ items: arr });
-    renderCompare(); updateCount();
-  }));
-}
-
-$("cmpClear").addEventListener("click", async () => {
-  await chrome.storage.local.set({ items: [] });
-  renderCompare(); updateCount();
 });
 
 // ---------- Init (handles right-click "check" from background.js) ----------
@@ -525,7 +528,7 @@ $("cmpClear").addEventListener("click", async () => {
     await chrome.storage.local.remove("pendingCheck");
     checkMaterial();
   } else if (d.unseen > 0) {
-    showTab("bag");   // something was added to a bag since last time
+    showTab("bag");
   }
   await chrome.storage.local.set({ unseen: 0 });
 })();

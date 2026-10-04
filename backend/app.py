@@ -74,6 +74,62 @@ def get_eco_score(material_label):
     return jsonify(result)
 
 
+# ---------- DETAILED ECO SCORE (for rich UI like material cards) ----------
+CARE_TIPS = {
+    "cotton": {"recycling": "Widely recyclable through textile recycling programs.", "care": "Cold wash, line dry to extend garment life and cut emissions.", "tip": "Choose organic or recycled cotton where possible."},
+    "polyester": {"recycling": "Plastic-based. Needs special textile recycling.", "care": "Cold wash in a filter bag to limit microplastic shedding.", "tip": "Choose recycled polyester where possible."},
+    "nylon": {"recycling": "Plastic-based. Needs special textile recycling.", "care": "Cold wash in a filter bag to limit microplastics.", "tip": "Choose recycled nylon where possible."},
+    "wool": {"recycling": "Biodegradable, but rarely recycled in regular programs.", "care": "Hand wash or dry clean; avoid frequent washing.", "tip": "Buy fewer, higher-quality wool pieces and keep them longer."},
+    "silk": {"recycling": "Biodegradable, but rarely recycled in regular programs.", "care": "Hand wash cold or dry clean only.", "tip": "Air out between wears instead of washing every time."},
+    "denim": {"recycling": "Cotton-based; some brands run take-back recycling.", "care": "Wash less often, cold water, inside out.", "tip": "Repair small tears instead of replacing."},
+    "linen": {"recycling": "Biodegradable and compostable if undyed.", "care": "Machine wash cold, air dry.", "tip": "Naturally durable — expect it to last many years."},
+    "leather": {"recycling": "Not biodegradable when tanned; rarely recycled.", "care": "Spot clean, condition occasionally, avoid soaking.", "tip": "Consider second-hand or recycled leather alternatives."},
+}
+DEFAULT_CARE = {"recycling": "Recyclability depends on local textile recycling facilities.", "care": "Follow the garment's care label to extend its life.", "tip": "Buying fewer, longer-lasting pieces usually has the biggest impact."}
+
+
+@app.route("/eco-score-detail/<material_label>")
+def get_eco_score_detail(material_label):
+    conn = get_connection()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("SELECT * FROM materials WHERE material_label = %s", (material_label.lower(),))
+    result = cur.fetchone()
+    cur.close()
+    conn.close()
+    if result is None:
+        return jsonify({"error": "Material not found"}), 404
+
+    result = dict(result)
+    score = calculate_eco_score(result["carbon_footprint_kg_co2e_per_kg"], result["water_usage_l_per_kg"])
+    result["eco_score"] = score
+    result["eco_score_label"] = score_label(score)
+
+    carbon_per_kg = result.get("carbon_footprint_kg_co2e_per_kg")
+    garment_weight_kg = 0.25
+    garment_carbon = round(float(carbon_per_kg) * garment_weight_kg, 2) if carbon_per_kg else None
+    driving_km = round(garment_carbon / 0.17, 1) if garment_carbon else None
+
+    care = CARE_TIPS.get(material_label.lower(), DEFAULT_CARE)
+
+    verdict = (
+        "An excellent choice. Low footprint across the board." if score is not None and score >= 80 else
+        "A good choice. Wear it long and care for it well." if score is not None and score >= 70 else
+        "A moderate choice. Fine occasionally, but look for better alternatives for everyday wear." if score is not None and score >= 45 else
+        "A higher-impact choice. Consider an alternative material if you can." if score is not None else
+        "Not enough data to give a verdict."
+    )
+
+    result["garment_estimate"] = {
+        "weight_kg": garment_weight_kg,
+        "carbon_kg_co2e": garment_carbon,
+        "driving_km_equivalent": driving_km
+    }
+    result["verdict"] = verdict
+    result["care"] = care
+
+    return jsonify(result)
+
+
 # ---------- ALTERNATIVES (better materials, same type) ----------
 @app.route("/alternatives/<material_label>")
 def get_alternatives(material_label):
@@ -260,7 +316,6 @@ def clean_tags(tags):
 def barcode_lookup(code):
     code = code.strip()
 
-    # check our own catalog first (clothing barcodes are demo barcodes we assigned)
     conn = get_connection()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     cur.execute("""
