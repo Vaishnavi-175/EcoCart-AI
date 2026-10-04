@@ -18,6 +18,7 @@ DB_CONFIG = {
     "user": os.getenv("DB_USER", "postgres"),
     "password": os.getenv("DB_PASSWORD", ""),
     "port": int(os.getenv("DB_PORT", "5432"))
+    "sslmode": "require"
 }
 
 def get_connection():
