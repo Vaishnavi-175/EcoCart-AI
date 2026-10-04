@@ -13,11 +13,11 @@ app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})
 
 DB_CONFIG = {
-    "host": "localhost",
-    "database": "ecocart_ai",
-    "user": "postgres",
-    "password": "vaishnavi@1708",
-    "port": 5432
+    "host": os.getenv("DB_HOST", "localhost"),
+    "database": os.getenv("DB_NAME", "ecocart_ai"),
+    "user": os.getenv("DB_USER", "postgres"),
+    "password": os.getenv("DB_PASSWORD", ""),
+    "port": int(os.getenv("DB_PORT", "5432"))
 }
 
 def get_connection():
