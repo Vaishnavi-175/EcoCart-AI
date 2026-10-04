@@ -17,7 +17,7 @@ DB_CONFIG = {
     "database": os.getenv("DB_NAME", "ecocart_ai"),
     "user": os.getenv("DB_USER", "postgres"),
     "password": os.getenv("DB_PASSWORD", ""),
-    "port": int(os.getenv("DB_PORT", "5432"))
+    "port": int(os.getenv("DB_PORT", "5432")),
     "sslmode": "require"
 }
 
