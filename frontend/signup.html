@@ -137,7 +137,7 @@ document.getElementById("signupForm").addEventListener("submit", async function(
   const full_name = `${first_name} ${last_name}`.trim();
 
   try {
-    const res = await fetch("http://127.0.0.1:5000/signup", {
+    const res = await fetch("https://ecocart-ai-backend.onrender.com/signup", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ full_name, email, password })

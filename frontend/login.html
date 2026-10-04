@@ -116,7 +116,7 @@ document.getElementById("loginForm").addEventListener("submit", async function(e
   msg.className = "msg"; msg.style.display = "none";
 
   try {
-    const res = await fetch("http://127.0.0.1:5000/login", {
+    const res = await fetch("https://ecocart-ai-backend.onrender.com/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email, password })

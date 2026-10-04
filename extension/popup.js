@@ -1,4 +1,4 @@
-const API = "http://127.0.0.1:5000";
+const API = "https://ecocart-ai-backend.onrender.com";
 const $ = (id) => document.getElementById(id);
 
 // Materials checked when looking for greener alternatives (ones missing in DB are skipped)
