@@ -23,8 +23,8 @@ body { width: 410px; min-height: 580px; font-family: "Segoe UI", system-ui, Aria
 .hero-line { position: relative; z-index: 1; margin-top: 14px; font-size: 12px; opacity: .85; line-height: 1.5; }
 
 /* TABS */
-.tabs { display: grid; grid-template-columns: repeat(5, 1fr); gap: 3px; margin: -14px 12px 12px; padding: 4px; background: #fff; border-radius: 14px; box-shadow: 0 8px 22px rgba(11,46,33,.14); position: relative; z-index: 2; }
-.tab { border: none; background: transparent; padding: 7px 0 6px; border-radius: 10px; font-size: 10px; font-weight: 700; color: var(--muted); cursor: pointer; transition: all .18s; display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.tabs { display: grid; grid-template-columns: repeat(6, 1fr); gap: 2px; margin: -14px 12px 12px; padding: 4px; background: #fff; border-radius: 14px; box-shadow: 0 8px 22px rgba(11,46,33,.14); position: relative; z-index: 2; }
+.tab { border: none; background: transparent; padding: 7px 0 6px; border-radius: 10px; font-size: 9.5px; font-weight: 700; color: var(--muted); cursor: pointer; transition: all .18s; display: flex; flex-direction: column; align-items: center; gap: 2px; }
 .tab .i { font-size: 15px; line-height: 1; }
 .item { background: #fff; border: 1px solid var(--line); border-radius: 16px; padding: 12px; margin-top: 10px; box-shadow: 0 6px 18px rgba(11,46,33,.05); }
 .item .top { display: flex; gap: 10px; align-items: center; }
@@ -147,6 +147,48 @@ select { width: 100%; padding: 11px; border: 1.5px solid var(--line); border-rad
 .care div { background: #f5faf7; border-radius: 12px; padding: 9px 10px; }
 .care small { display: block; font-size: 9px; color: var(--muted); text-transform: uppercase; letter-spacing: .4px; }
 .care b { display: block; margin-top: 3px; font-size: 11.5px; }
+
+/* LABELS, FILTER, DASHBOARD */
+.lab { background: #f5faf7; border-radius: 12px; padding: 10px 12px; margin-bottom: 7px; }
+.lab .lh { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.lab .lh b { font-size: 12.5px; }
+.lab .lt { font-size: 12px; line-height: 1.45; margin-top: 5px; color: #35493e; }
+.lab .lw { font-size: 11px; line-height: 1.4; margin-top: 4px; color: #8a5a16; }
+.chipx { display: inline-block; font-size: 9.5px; font-weight: 800; padding: 2px 7px; border-radius: 99px; background: #e3f5ea; color: #14633f; margin: 4px 4px 0 0; }
+.chipx.st { background: #eef5f1; color: #5b7064; }
+.chipx.st.bought { background: #dff3e6; color: #14633f; }
+.chipx.st.skipped { background: #f1ecec; color: #8f6b6b; }
+.item.dim { opacity: .55; }
+.item .acts { flex-wrap: wrap; }
+.item .acts button { flex: 1 1 28%; }
+.item .acts button.rm { flex: 0 0 56px; }
+.filter { background: #fff; border: 1px solid var(--line); border-radius: 14px; padding: 12px; margin-bottom: 4px; }
+.frow { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; font-size: 12px; }
+.frow label { width: 92px; color: #5b7064; font-weight: 600; flex-shrink: 0; }
+.frow input[type=range] { flex: 1; accent-color: var(--leaf); min-width: 0; }
+.frow input[type=number] { flex: 1; min-width: 0; padding: 8px 10px; border: 1.5px solid var(--line); border-radius: 10px; font-size: 12px; background: #fff; color: var(--ink); }
+.frow select { padding: 8px 10px; font-size: 12px; }
+.fcount { font-size: 11px; color: var(--muted); line-height: 1.4; }
+.kpis { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 4px; }
+.kpi { background: #fff; border: 1px solid var(--line); border-radius: 14px; padding: 12px; }
+.kpi small { display: block; font-size: 9.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .4px; }
+.kpi b { display: block; font-size: 22px; margin-top: 3px; }
+.kpi span { font-size: 10.5px; color: var(--muted); }
+.goal { margin-top: 10px; padding: 12px 14px; border-radius: 14px; background: linear-gradient(135deg, var(--deep), var(--leaf)); color: #fff; }
+.goal .gt { display: flex; justify-content: space-between; font-size: 12px; font-weight: 700; }
+.goal .gb { height: 8px; border-radius: 6px; background: rgba(255,255,255,.2); margin-top: 8px; overflow: hidden; }
+.goal .gb i { display: block; height: 100%; background: #7ee2ae; border-radius: 6px; }
+.goal small { display: block; margin-top: 6px; font-size: 10.5px; opacity: .85; }
+.tierbar { display: flex; height: 12px; border-radius: 8px; overflow: hidden; margin: 8px 0 6px; background: #e6efe9; }
+.tierbar i { display: block; height: 100%; }
+.legend { display: flex; gap: 12px; font-size: 11px; color: #5b7064; flex-wrap: wrap; }
+.legend em { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; }
+.trend { width: 100%; height: auto; display: block; margin-top: 4px; }
+.insight { background: #f5faf7; border-radius: 12px; padding: 10px 12px; margin-bottom: 6px; font-size: 12px; line-height: 1.5; color: #35493e; }
+.insight b { color: var(--leaf); }
+.scopesel { display: flex; gap: 8px; align-items: center; margin-bottom: 4px; font-size: 12px; color: #5b7064; font-weight: 600; }
+.scopesel select { flex: 1; padding: 8px 10px; font-size: 12px; }
+.danger { background: #fdeeee; color: #c0605f; }
 </style>
 </head>
 <body>
@@ -168,6 +210,7 @@ select { width: 100%; padding: 11px; border: 1.5px solid var(--line); border-rad
   <button class="tab" data-tab="camera"><span class="i">📷</span>Camera</button>
   <button class="tab" data-tab="bag"><span class="i">🛍</span>Bag <span class="n" id="bagCount">0</span></button>
   <button class="tab" data-tab="compare"><span class="i">⚖</span>Compare <span class="n" id="cmpCount">0</span></button>
+  <button class="tab" data-tab="stats"><span class="i">📊</span>Impact</button>
 </div>
 
 <!-- MATERIAL -->
@@ -205,6 +248,18 @@ select { width: 100%; padding: 11px; border: 1.5px solid var(--line); border-rad
 
 <!-- BAG (items captured when you press "Add to bag" on any website) -->
 <section class="panel" id="panel-bag">
+  <div class="filter">
+    <div class="frow"><label>Min eco score <b id="fMinVal">0</b></label><input type="range" id="fMin" min="0" max="100" step="5" value="0"></div>
+    <div class="frow"><label>Max price</label><input type="number" id="fMax" min="0" placeholder="no limit"></div>
+    <div class="frow"><label>Sort by</label>
+      <select id="fSort">
+        <option value="new">Newest first</option>
+        <option value="green">Greenest first</option>
+        <option value="cheap">Cheapest first</option>
+      </select>
+    </div>
+    <div class="fcount" id="fCount"></div>
+  </div>
   <div id="bagList"></div>
   <button class="btn ghost full" id="bagClear" style="display:none">Clear bag</button>
 </section>
@@ -215,7 +270,20 @@ select { width: 100%; padding: 11px; border: 1.5px solid var(--line); border-rad
   <button class="btn ghost full" id="cmpClear" style="display:none">Clear all</button>
 </section>
 
-<div class="foot">EcoCart AI · data from peer-reviewed sustainability studies</div>
+<!-- IMPACT DASHBOARD -->
+<section class="panel" id="panel-stats">
+  <div class="scopesel">
+    <span>Show</span>
+    <select id="statsScope">
+      <option value="all">Everything in my bag + bought</option>
+      <option value="bought">Only items I bought</option>
+    </select>
+  </div>
+  <div id="statsOut"></div>
+  <button class="btn ghost full danger" id="statsReset" style="display:none">Clear all tracked data</button>
+</section>
+
+<div class="foot">EcoCart AI · estimates from our materials database, not exact measurements</div>
 
 <script src="data.js"></script>
 <script src="popup.js"></script>
