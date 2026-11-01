@@ -1,2 +1,6 @@
 ml/TextileNet-main.zip
 ml/TextileNet-main.zip
+
+__pycache__/
+*.pyc
+venv/
