@@ -66,7 +66,36 @@ function stars(n) {
   return "★".repeat(n) + `<span class="off">${"★".repeat(5 - n)}</span>`;
 }
 
-async function loadAlternatives(score, carbon, exclude, box) {
+// ---------- Shop links: real search pages on Indian shopping sites ----------
+const SHOPS = [
+  ["Myntra", (q) => "https://www.myntra.com/" + encodeURIComponent(q.trim().replace(/\s+/g, "-"))],
+  ["Amazon", (q) => "https://www.amazon.in/s?k=" + encodeURIComponent(q)],
+  ["Flipkart", (q) => "https://www.flipkart.com/search?q=" + encodeURIComponent(q)],
+  ["Meesho", (q) => "https://www.meesho.com/search?q=" + encodeURIComponent(q)]
+];
+const searchName = (label) => String(label || "clothing").split("/")[0].trim().toLowerCase();
+function shopLinks(q) {
+  return `<div class="chips" style="margin-top:6px">${SHOPS.map(([n, f]) =>
+    `<a class="chip" style="text-decoration:none" target="_blank" rel="noopener" href="${esc(f(q))}">${n} ↗</a>`).join("")}</div>`;
+}
+
+async function loadAlternatives(score, carbon, exclude, box, garmentLabel, mainKey) {
+  const g = searchName(garmentLabel);
+  const main = pretty(mainKey || "cotton");
+  const certBlock = `
+    <div class="sec">🛒 Shop certified options</div>
+    <div class="tip"><b>GOTS organic ${esc(g)}</b>${shopLinks("GOTS organic " + g)}</div>
+    <div class="tip"><b>OEKO-TEX certified ${esc(g)}</b>${shopLinks("OEKO-TEX certified " + g)}</div>
+    <div class="tip">Second-hand is usually the greenest: <b>${esc(g)}</b> on resale apps (OLX, Instagram thrift stores).</div>
+    <div class="sub">These open a search on each site. We don't control the results, so check the fabric label of the product you pick.</div>`;
+
+  if (score >= 60) {
+    box.innerHTML = `
+      <div class="sec">🛒 Find more like this</div>
+      <div class="tip"><b>Organic ${esc(main)} ${esc(g)}</b>${shopLinks("organic " + main + " " + g)}</div>` + certBlock;
+    return;
+  }
+
   box.innerHTML = skeleton();
   const results = await Promise.all(
     CANDIDATES.filter((m) => !exclude.includes(m)).map((m) => getScore(m).catch(() => null))
@@ -77,23 +106,79 @@ async function loadAlternatives(score, carbon, exclude, box) {
     .slice(0, 3);
 
   if (!better.length) {
-    box.innerHTML = `<div class="tip">No better material found in our database. Buying second-hand is usually the greenest option.</div>`;
+    box.innerHTML = `<div class="tip">No better material found in our database. Buying second-hand is usually the greenest option.</div>` + certBlock;
     return;
   }
   box.innerHTML =
-    `<div class="sec">🌿 Greener alternatives</div>` +
+    `<div class="sec">🌿 Greener alternatives (tap a shop to see products)</div>` +
     better.map((b) => {
       const saving = carbon && b.carbon_footprint_kg_co2e_per_kg != null
         ? Math.round(((carbon - b.carbon_footprint_kg_co2e_per_kg) / carbon) * 100) : null;
-      return `<div class="alt">
-        <div class="info"><b>${esc(pretty(b.material_label))}</b>
-          <div class="gain">+${Math.round(b.eco_score - score)} points${saving && saving > 0 ? ` · about ${saving}% less carbon` : ""}</div></div>
-        <div class="sc">${esc(b.eco_score)}</div>
+      const name = pretty(b.material_label);
+      return `<div class="alt" style="display:block">
+        <div style="display:flex;align-items:center;gap:10px">
+          <div class="info"><b>${esc(name)} ${esc(g)}</b>
+            <div class="gain">+${Math.round(b.eco_score - score)} points${saving && saving > 0 ? ` · about ${saving}% less carbon` : ""}</div></div>
+          <div class="sc">${esc(b.eco_score)}</div>
+        </div>
+        ${shopLinks(name + " " + g)}
       </div>`;
-    }).join("") +
-    `<div class="tip">Even better: buy second-hand, or pick recycled / organic versions of these.</div>`;
+    }).join("") + certBlock;
 }
 
+// ---------- Recommendation engine: similar products with a higher eco score (from our catalog) ----------
+async function loadRecommendations(box, q) {
+  const TITLE = `<div class="sec">🤖 Recommended products (from our catalog)</div>`;
+  box.innerHTML = `${TITLE}${skeleton()}<div class="sub" id="recWait">Searching our catalog…</div>`;
+  const slow = setTimeout(() => {
+    const w = box.querySelector("#recWait");
+    if (w) w.textContent = "The server is waking up. This can take up to a minute…";
+  }, 6000);
+  const ctl = new AbortController();
+  const killer = setTimeout(() => ctl.abort(), 90000);
+  try {
+    const qs = new URLSearchParams({ name: q.name || "", garment: q.garment || "", limit: "4" });
+    if (typeof q.score === "number") qs.set("score", String(q.score));
+    const res = await fetch(`${API}/recommend?${qs}`, { signal: ctl.signal });
+    const d = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(d.detail || d.error || "failed (" + res.status + ")");
+
+    const recs = d.recommendations || [];
+    if (!recs.length) {
+      const g = d.diagnostics
+        ? `<div class="sub">Checked ${esc(d.diagnostics.scanned)} products, ${esc(d.diagnostics.with_score)} had an eco score, ${esc(d.diagnostics.higher_score)} were greener.</div>`
+        : "";
+      box.innerHTML = `${TITLE}<div class="tip">${esc(d.note || "No similar product with a higher eco score was found in our catalog.")}</div>${g}`;
+      return;
+    }
+
+    box.innerHTML = TITLE + recs.map((r) => {
+      const img = r.image && /^https?:/i.test(r.image)
+        ? `<img src="${esc(r.image)}" alt="" style="width:46px;height:46px;object-fit:cover;border-radius:10px;flex-shrink:0">` : "";
+      const link = r.url && /^https?:/i.test(r.url)
+        ? `<a class="chip" style="text-decoration:none" target="_blank" rel="noopener" href="${esc(r.url)}">View ↗</a>` : "";
+      return `<div class="alt" style="display:block">
+        <div style="display:flex;align-items:center;gap:10px">${img}
+          <div class="info"><b style="text-transform:none">${esc(r.name)}</b>
+            <div class="gain">${r.gain != null ? "+" + esc(r.gain) + " eco points · " : ""}${Math.round(r.similarity * 100)}% similar${r.price != null ? " · ₹" + esc(Math.round(r.price)) : ""}</div></div>
+          <div class="sc">${esc(r.score)}</div>
+        </div>
+        <div class="chips" style="margin-top:6px">${link}${SHOPS.slice(0, 2).map(([n, f]) =>
+          `<a class="chip" style="text-decoration:none" target="_blank" rel="noopener" href="${esc(f(r.name))}">${n} ↗</a>`).join("")}</div>
+      </div>`;
+    }).join("") +
+      `<div class="sub">Found by comparing garment type (similarity) and fabric eco scores. ${d.catalog_size ? "Catalog size: " + esc(Number(d.catalog_size).toLocaleString()) + " products." : ""}</div>`;
+  } catch (e) {
+    box.innerHTML = `${TITLE}
+      <div class="tip">Couldn't load recommendations (${esc(e.name === "AbortError" ? "server too slow" : e.message)}).
+      <button class="btn ghost small" id="recRetry" style="margin-top:6px;padding:6px 12px">↻ Try again</button></div>`;
+    const rb = box.querySelector("#recRetry");
+    if (rb) rb.addEventListener("click", () => loadRecommendations(box, q));
+  } finally {
+    clearTimeout(slow);
+    clearTimeout(killer);
+  }
+}
 // =====================================================================
 // LABELS & CLAIMS CARD
 // =====================================================================
@@ -117,7 +202,7 @@ function labelsCardHTML(info, heading) {
 }
 
 // =====================================================================
-// THE GARMENT REPORT - one card used by Material, Barcode, Camera, Scan, Bag
+// THE GARMENT REPORT - one card used by Material, Camera, Scan, Bag
 // opts: { title, subtitle, parts:[{key,pct,data}], track?: {url,site,image,price,currency}, certs?:[ids] }
 // =====================================================================
 function renderReport(mount, opts) {
@@ -185,9 +270,10 @@ function renderReport(mount, opts) {
         <div><small>Per wear</small><b>${r.carbonPerWearG != null ? Math.round(r.carbonPerWearG) + " g" : "N/A"}</b></div>
       </div>
       ${r.garmentCarbon != null ? `<div class="equiv">One ${esc(r.garment.label.toLowerCase())} of this fabric ≈ <b>${fmt(r.garmentCarbon, 2)} kg CO₂e</b>, about <b>${Math.round(r.km)} km</b> in a petrol car. ${r.wears ? `Worn <b>~${r.wears} times</b>, that is <b>${Math.round(r.carbonPerWearG)} g CO₂e per wear</b>. Every extra wear lowers it.` : ""}</div>` : ""}
-      <div class="banner ${poor ? "warn" : "good"}"><span>${poor ? "⚠" : "✓"}</span><span>${poor ? "High-impact fabric. Greener options are listed below." : "A good choice. Wear it long and care for it well."}</span></div>
+      <div class="banner ${poor ? "warn" : "good"}"><span>${poor ? "⚠" : "✓"}</span><span>${poor ? "High-impact fabric. Greener options and shop links are below." : "A good choice. Wear it long and care for it well. Similar options are below."}</span></div>
 
       <div id="altBox"></div>
+      <div id="recBox"></div>
 
       <div class="sec">🔬 Fabric health check</div>
       ${healthRows}
@@ -223,7 +309,8 @@ function renderReport(mount, opts) {
     tb.disabled = true;
   });
   animate(mount);
-  if (poor) loadAlternatives(score, r.carbonKg, parts.map((p) => p.key), mount.querySelector("#altBox"));
+  loadAlternatives(score, r.carbonKg, parts.map((p) => p.key), mount.querySelector("#altBox"), r.garment.label, (parts.slice().sort((a, b) => b.pct - a.pct)[0] || {}).key);
+  loadRecommendations(mount.querySelector("#recBox"), { name: opts.title || label, garment: currentGarment, score: Math.round(score) });
 }
 
 function renderMaterial(data, mount, opts) {
@@ -272,7 +359,7 @@ async function checkMaterial() {
     if (lab.found.length) { out.innerHTML = labelsCardHTML({ found: lab.found, warnings: [] }, "About this label"); return; }
     out.innerHTML = `<div class="err">No data for "${esc(raw)}". Try a fabric (cotton, polyester, denim) or a label (GOTS, OEKO-TEX, GRS).</div>`;
   } catch (e) {
-    out.innerHTML = `<div class="err">Can't reach the backend. Run <b>python app.py</b> (port 5000).</div>`;
+    out.innerHTML = `<div class="err">Can't reach the server. It may be waking up, so wait a few seconds and try again.</div>`;
   }
 }
 
@@ -329,178 +416,143 @@ async function scanPage() {
   renderReport(rep, { title: p.title, subtitle: "Weighted score from the composition found on the page", parts: ok, track, certs });
 }
 
-// ---------- Barcode tab (clothing only) ----------
-$("barcodeBtn").addEventListener("click", checkBarcode);
-$("barcodeInput").addEventListener("keydown", (e) => { if (e.key === "Enter") checkBarcode(); });
+// ---------- Camera tab ----------
+// Typical fabrics per garment (a hint only; the user confirms from the care label)
+const GARMENT_FABRICS = {
+  tshirt: ["cotton", "polyester"], top: ["cotton", "polyester", "viscose_rayon"],
+  shirt: ["cotton", "linen", "polyester"], dress: ["polyester", "viscose_rayon", "cotton"],
+  sweater: ["wool", "acrylic", "cotton"], saree: ["silk", "cotton", "polyester"],
+  jeans: ["denim", "cotton"], jacket: ["polyester", "nylon", "wool"]
+};
+const ALL_FABRICS = ["cotton", "polyester", "silk", "wool", "denim", "nylon", "linen", "viscose_rayon", "acrylic", "hemp", "tencel"];
+let photo = null;
+let detectToken = 0;
 
-async function getUserCatalog() { return (await chrome.storage.local.get({ userCatalog: {} })).userCatalog; }
+$("camTake").addEventListener("click", () => $("camFileCam").click());
+$("camUpload").addEventListener("click", () => $("camFileUp").click());
+// reset the input after reading so choosing the same photo again still works
+function onPick(e) { const f = e.target.files[0]; e.target.value = ""; takePhoto(f); }
+$("camFileCam").addEventListener("change", onPick);
+$("camFileUp").addEventListener("change", onPick);
 
-async function checkBarcode() {
-  const code = $("barcodeInput").value.trim().replace(/\s+/g, "");
-  const out = $("barcodeOut");
-  if (!code) return;
-  out.innerHTML = skeleton();
-
-  // 1) products the user saved earlier (works even when the backend is off)
-  const uc = await getUserCatalog();
-  if (uc[code]) { await showSavedProduct(code, uc[code], out); return; }
-
-  // 2) the EcoCart catalog in the backend
-  let backendDown = false;
-  try {
-    const res = await fetch(`${API}/barcode/${encodeURIComponent(code)}`);
-    const d = await res.json().catch(() => ({}));
-    const key = String(d.material_label || d.material || d.material_name || "").toLowerCase().replace(/\s+/g, "_");
-    const score = Number(d.eco_score);
-    if (res.ok && key && d.eco_score != null && !isNaN(score)) {
-      d.material_label = key;
-      d.eco_score = score;
-      out.innerHTML = `<div id="bcRep"></div>`;
-      const price = Number(d.price);
-      renderMaterial(d, out.querySelector("#bcRep"), {
-        title: d.name || "Clothing product",
-        subtitle: [d.brand, d.category].filter(Boolean).join(" · ") || "From the EcoCart catalog",
-        track: { url: "barcode:" + code, site: "barcode", image: d.image || null, price: isFinite(price) && price > 0 ? price : null, currency: "INR" }
-      });
-      return;
-    }
-  } catch (e) {
-    backendDown = true;
-  }
-
-  // 3) not found anywhere -> let the user add it
-  renderAddProduct(code, out, backendDown);
-}
-
-async function showSavedProduct(code, entry, out) {
-  out.innerHTML = `<div id="bcRep"></div><div id="bcExtra"></div>`;
-  const rep = out.querySelector("#bcRep");
-  const ok = await lookupParts(entry.parts).catch(() => []);
-  if (!ok.length) { rep.innerHTML = `<div class="err">Your saved product "${esc(entry.name)}" needs the backend to calculate its score. Run <b>python app.py</b>.</div>`; }
-  else {
-    currentGarment = entry.garment || currentGarment;
-    renderReport(rep, {
-      title: entry.name, subtitle: `Saved by you · barcode ${code}${entry.price ? " · " + fmtPrice(entry.price, entry.currency) : ""}`,
-      parts: ok, track: { url: "barcode:" + code, site: "barcode", image: null, price: entry.price ?? null, currency: entry.currency || null }
-    });
-  }
-  const ex = out.querySelector("#bcExtra");
-  ex.innerHTML = `<button class="btn ghost full danger" id="bcDel">Remove this saved product</button>`;
-  ex.querySelector("#bcDel").addEventListener("click", async () => {
-    const u = await getUserCatalog();
-    delete u[code];
-    await chrome.storage.local.set({ userCatalog: u });
-    out.innerHTML = `<div class="banner good"><span>✓</span><span>Removed.</span></div>`;
-  });
-}
-
-function renderAddProduct(code, out, backendDown) {
-  const field = `style="width:100%;padding:11px;border:1.5px solid #e1ece5;border-radius:12px;margin-top:8px;font-size:13px;background:#fff;color:#14281f"`;
-  out.innerHTML = `
-    <div class="card">
-      <h3>New barcode</h3>
-      <div class="sub">Barcode <b>${esc(code)}</b> isn't in our clothing catalog${backendDown ? " (and the backend is not reachable)" : ""}. No free public database of clothing barcodes exists, because retailers keep them private. Add it yourself, like contributors do on Open Food Facts, and the next scan finds it instantly.</div>
-      <input id="npName" ${field} placeholder="Product name, e.g. Floral cotton top">
-      <input id="npComp" ${field} placeholder="Fabric from the care label, e.g. 60% cotton, 40% polyester">
-      <input id="npPrice" type="number" min="0" ${field} placeholder="Price in ₹ (optional)">
-      <select id="npGarment" ${field}>${Object.entries(GARMENTS).map(([k, g]) => `<option value="${k}">${esc(g.label)}</option>`).join("")}</select>
-      <div class="err" id="npErr" style="display:none"></div>
-      <button class="btn full" id="npSave">Save and analyse</button>
-    </div>`;
-  $("npSave").addEventListener("click", async () => {
-    const name = $("npName").value.trim();
-    const comp = $("npComp").value.trim().toLowerCase();
-    const err = $("npErr");
-    let parts = findParts(comp);
-    if (!parts.length && ALIASES[comp]) parts = [{ key: ALIASES[comp], pct: 100 }];
-    if (!name) { err.style.display = "block"; err.textContent = "Please enter a product name."; return; }
-    if (!parts.length) { err.style.display = "block"; err.textContent = 'Write the fabric like "60% cotton, 40% polyester" or just "cotton".'; return; }
-    const price = parseFloat($("npPrice").value);
-    const u = await getUserCatalog();
-    u[code] = { name, parts, price: isFinite(price) && price > 0 ? price : null, currency: "INR", garment: $("npGarment").value, added: Date.now() };
-    await chrome.storage.local.set({ userCatalog: u });
-    await showSavedProduct(code, u[code], out);
-  });
-}
-
-// Read a barcode from a photo (works only where the browser supports BarcodeDetector)
-$("bcPhotoBtn").addEventListener("click", () => $("bcPhoto").click());
-$("bcPhoto").addEventListener("change", async (e) => {
-  const f = e.target.files[0];
-  const out = $("barcodeOut");
-  if (!f) return;
-  if (!("BarcodeDetector" in window)) {
-    out.innerHTML = `<div class="err">This browser can't read barcodes from a photo. Type the digits instead.</div>`;
-    return;
-  }
-  try {
-    const det = new BarcodeDetector();
-    const bmp = await createImageBitmap(f);
-    const codes = await det.detect(bmp);
-    if (!codes.length) { out.innerHTML = `<div class="err">No barcode found in the photo. Try a closer, sharper picture.</div>`; return; }
-    $("barcodeInput").value = codes[0].rawValue;
-    checkBarcode();
-  } catch (err) {
-    out.innerHTML = `<div class="err">Couldn't read the barcode from this photo. Type the digits instead.</div>`;
-  }
+// drag & drop a photo onto the camera panel
+const camPanel = $("panel-camera");
+camPanel.addEventListener("dragover", (e) => { e.preventDefault(); camPanel.classList.add("drop"); });
+camPanel.addEventListener("dragleave", () => camPanel.classList.remove("drop"));
+camPanel.addEventListener("drop", (e) => {
+  e.preventDefault();
+  camPanel.classList.remove("drop");
+  const f = e.dataTransfer.files && e.dataTransfer.files[0];
+  if (f && f.type.startsWith("image/")) takePhoto(f);
 });
 
-// ---------- Camera tab ----------
-let photo = null;
-$("camPick").addEventListener("click", () => $("camFile").click());
-$("camFile").addEventListener("change", (e) => {
-  const f = e.target.files[0];
+// shrink big phone photos before upload: faster, and fewer failures on a sleeping server
+async function shrink(file, max = 800) {
+  try {
+    const bmp = await createImageBitmap(file);
+    const k = Math.min(1, max / Math.max(bmp.width, bmp.height));
+    const c = document.createElement("canvas");
+    c.width = Math.round(bmp.width * k);
+    c.height = Math.round(bmp.height * k);
+    c.getContext("2d").drawImage(bmp, 0, 0, c.width, c.height);
+    return await new Promise((r) => c.toBlob((b) => r(b || file), "image/jpeg", 0.85));
+  } catch (e) {
+    return file;
+  }
+}
+
+async function takePhoto(f) {
   if (!f) return;
+  if (!f.type.startsWith("image/")) { $("camOut").innerHTML = `<div class="err">Please choose an image file (JPG or PNG).</div>`; return; }
   photo = f;
   $("camPreview").src = URL.createObjectURL(f);
   $("camPreview").style.display = "block";
   $("camIntro").style.display = "none";
-  $("camDetect").style.display = "block";
-  $("camOut").innerHTML = "";
-});
+  detectGarment(); // runs automatically, no extra click
+}
 
-$("camDetect").addEventListener("click", async () => {
+async function detectGarment() {
   if (!photo) return;
+  const my = ++detectToken;
   const out = $("camOut");
-  out.innerHTML = skeleton();
-  const fd = new FormData();
-  fd.append("image", photo, "photo.jpg");
+  out.innerHTML = `<div class="skel"><i style="width:55%"></i><i style="width:85%"></i><i style="width:40%"></i></div>
+    <div class="sub" id="camWait" style="margin-top:6px">Analysing your photo…</div>`;
+  const slow = setTimeout(() => {
+    const w = $("camWait");
+    if (w && my === detectToken) w.textContent = "The server is waking up. The first request can take up to a minute…";
+  }, 6000);
+
+  const ctl = new AbortController();
+  const killer = setTimeout(() => ctl.abort(), 90000);
   try {
-    const res = await fetch(`${API}/detect`, { method: "POST", body: fd });
-    const d = await res.json();
-    if (!res.ok) { out.innerHTML = `<div class="err">${esc(d.error || "Detection failed")}</div>`; return; }
-    if (!d.predictions || !d.predictions.length) { out.innerHTML = `<div class="err">No garment detected. Try a clearer, closer photo.</div>`; return; }
-
-    currentGarment = mapGarment(d.predictions[0].label); // detected garment sets the weight used below
-
-    const rows = d.predictions.slice(0, 3).map((p) =>
-      `<div class="pbar"><b>${esc(pretty(p.label))}</b><i><em style="width:${Math.round(p.confidence * 100)}%"></em></i><span>${Math.round(p.confidence * 100)}%</span></div>`).join("");
-
-    out.innerHTML = `
-      <div class="card">
-        <h3>Detected: ${esc(pretty(d.predictions[0].label))}</h3>
-        ${rows}
-        <div class="sub" style="margin-top:8px">Our YOLO model is trained on a subset of Fashionpedia, so accuracy is still improving.</div>
-        <div class="sec">What is it made of?</div>
-        <select id="camMat"><option value="">Select fabric...</option>
-          ${["cotton", "polyester", "silk", "wool", "denim", "nylon", "linen", "viscose_rayon", "acrylic"].map((m) => `<option value="${m}">${pretty(m)}</option>`).join("")}
-        </select>
-      </div>
-      <div id="camMatOut"></div>`;
-
-    $("camMat").addEventListener("change", async (e) => {
-      const m = e.target.value;
-      const box = $("camMatOut");
-      if (!m) { box.innerHTML = ""; return; }
-      box.innerHTML = skeleton();
-      const data = await getScore(m).catch(() => null);
-      if (!data) { box.innerHTML = `<div class="err">No data for this material.</div>`; return; }
-      renderMaterial(data, box);
-    });
+    const blob = await shrink(photo);
+    const fd = new FormData();
+    fd.append("image", blob, "photo.jpg");
+    const res = await fetch(`${API}/detect`, { method: "POST", body: fd, signal: ctl.signal });
+    const d = await res.json().catch(() => ({}));
+    if (my !== detectToken) return; // a newer photo replaced this one
+    if (!res.ok) {
+      const msg = res.status >= 500
+        ? "The detection model on the server failed. Try again in a moment."
+        : (d.error || "Detection failed.");
+      out.innerHTML = `<div class="err">${esc(msg)}</div><button class="btn ghost full" id="camRetry">↻ Try again</button>`;
+      $("camRetry").addEventListener("click", detectGarment);
+      return;
+    }
+    renderDetection(d, out);
   } catch (e) {
-    out.innerHTML = `<div class="err">Can't reach the backend, or the detection model isn't loaded.</div>`;
+    if (my !== detectToken) return;
+    out.innerHTML = `<div class="err">${e.name === "AbortError" ? "The server took too long to answer." : "Can't reach the server."} It may be asleep. Wait a few seconds and try again.</div><button class="btn ghost full" id="camRetry">↻ Try again</button>`;
+    $("camRetry").addEventListener("click", detectGarment);
+  } finally {
+    clearTimeout(slow);
+    clearTimeout(killer);
   }
-});
+}
+
+function renderDetection(d, out) {
+  const preds = (d.predictions || []).slice().sort((a, b) => b.confidence - a.confidence);
+  if (!preds.length) {
+    out.innerHTML = `<div class="err">No garment found. Put the garment flat on a plain background, in good light, and fill the frame.</div><button class="btn ghost full" id="camRetry">↻ Try another photo</button>`;
+    $("camRetry").addEventListener("click", () => $("camUpload").click());
+    return;
+  }
+  const top = preds[0];
+  const conf = Math.round(top.confidence * 100);
+  const garment = mapGarment(top.label);
+  currentGarment = garment; // detected garment sets the weight used in the report
+  const sure = top.confidence >= 0.4;
+
+  const rows = preds.slice(0, 3).map((p) =>
+    `<div class="pbar"><b>${esc(pretty(p.label))}</b><i><em style="width:${Math.round(p.confidence * 100)}%"></em></i><span>${Math.round(p.confidence * 100)}%</span></div>`).join("");
+  const likely = GARMENT_FABRICS[garment] || ["cotton", "polyester"];
+
+  out.innerHTML = `
+    <div class="card">
+      <h3>${esc(pretty(top.label))}</h3>
+      <div class="sub">Garment type: ${esc(GARMENTS[garment].label)} · confidence ${conf}%</div>
+      ${sure ? "" : `<div class="banner warn"><span>⚠</span><span>Not very sure. Try a clearer photo, or check the other guesses below.</span></div>`}
+      ${rows}
+      <div class="sec">What is it made of?</div>
+      <div class="sub" style="margin:-2px 0 8px">Cameras can't see the fabric. Pick it from the care label (typical fabrics for this garment first).</div>
+      <div class="chips" id="camChips" style="margin-top:0">${likely.map((m) => `<span class="chip" data-m="${m}">${esc(pretty(m))}</span>`).join("")}</div>
+      <select id="camMat" style="margin-top:8px"><option value="">Other fabric...</option>${ALL_FABRICS.filter((m) => !likely.includes(m)).map((m) => `<option value="${m}">${esc(pretty(m))}</option>`).join("")}</select>
+      <div class="sub" style="margin-top:8px">Detection model: YOLO, trained on a subset of Fashionpedia. It recognises the garment shape, not the fabric.</div>
+    </div>
+    <div id="camMatOut"></div>`;
+
+  const pick = async (m) => {
+    const box = $("camMatOut");
+    if (!m) { box.innerHTML = ""; return; }
+    out.querySelectorAll("#camChips .chip").forEach((c) => c.classList.toggle("on", c.dataset.m === m));
+    box.innerHTML = skeleton();
+    const data = await getScore(m).catch(() => null);
+    if (!data) { box.innerHTML = `<div class="err">No data for this fabric.</div>`; return; }
+    renderMaterial(data, box, { title: `${pretty(top.label)} · ${pretty(m)}`, subtitle: "Fabric chosen by you. Check the care label to be sure." });
+  };
+  $("camChips").addEventListener("click", (e) => { if (e.target.dataset.m) { $("camMat").value = ""; pick(e.target.dataset.m); } });
+  $("camMat").addEventListener("change", (e) => { out.querySelectorAll("#camChips .chip").forEach((c) => c.classList.remove("on")); pick(e.target.value); });
+}
 
 // ---------- Compare ----------
 async function getItems() { return (await chrome.storage.local.get({ items: [] })).items; }
@@ -561,16 +613,23 @@ $("cmpClear").addEventListener("click", async () => {
 // =====================================================================
 // BAG with SUSTAINABILITY + BUDGET FILTER
 // =====================================================================
+const DEFAULT_FILTERS = { min: 0, max: null, sort: "new", q: "" };
 async function getFilters() {
-  return (await chrome.storage.local.get({ filters: { min: 0, max: null, sort: "new" } })).filters;
+  const f = (await chrome.storage.local.get({ filters: DEFAULT_FILTERS })).filters;
+  return { ...DEFAULT_FILTERS, ...f };
 }
+// search box + reset button are added from JS (so popup.html needs no change)
+$("fCount").insertAdjacentHTML("beforebegin", `
+  <div class="frow"><label>Search</label><input type="number" id="fQ" style="display:none"><input type="text" id="fQt" placeholder="name, site or fabric" style="flex:1;min-width:0;padding:8px 10px;border:1.5px solid var(--line);border-radius:10px;font-size:12px;background:#fff;color:var(--ink)"></div>
+  <button class="btn ghost full" id="fReset" style="display:none;margin:2px 0 8px">↺ Show all items (clear filters)</button>`);
 async function saveFilters(f) { await chrome.storage.local.set({ filters: f }); }
 
 function readFilterInputs() {
   const mx = parseFloat($("fMax").value);
-  return { min: Number($("fMin").value) || 0, max: isFinite(mx) && mx > 0 ? mx : null, sort: $("fSort").value };
+  return { min: Number($("fMin").value) || 0, max: isFinite(mx) && mx > 0 ? mx : null, sort: $("fSort").value, q: $("fQt").value.trim() };
 }
-["fMin", "fMax", "fSort"].forEach((id) => $(id).addEventListener("input", async () => {
+$("fReset").addEventListener("click", async () => { await saveFilters({ ...DEFAULT_FILTERS }); renderBag(); });
+["fMin", "fMax", "fSort", "fQt"].forEach((id) => $(id).addEventListener("input", async () => {
   $("fMinVal").textContent = $("fMin").value;
   await saveFilters(readFilterInputs());
   renderBag();
@@ -584,6 +643,9 @@ async function renderBag() {
   const f = await getFilters();
   $("fMin").value = f.min; $("fMinVal").textContent = f.min;
   $("fMax").value = f.max ?? ""; $("fSort").value = f.sort;
+  if (document.activeElement !== $("fQt")) $("fQt").value = f.q;
+  const filtersOn = f.min > 0 || f.max != null || !!f.q;
+  $("fReset").style.display = filtersOn ? "block" : "none";
   $("bagClear").style.display = cart.length ? "block" : "none";
 
   if (!cart.length) {
@@ -596,6 +658,10 @@ async function renderBag() {
   let rows = cart.map((c, i) => ({ c, i }));
   let hiddenNoScore = 0, hiddenNoPrice = 0;
   rows = rows.filter(({ c }) => {
+    if (f.q) {
+      const hay = [c.title, c.site, c.label].join(" ").toLowerCase();
+      if (!hay.includes(f.q.toLowerCase())) return false;
+    }
     if (f.min > 0 && typeof c.score !== "number") { hiddenNoScore++; return false; }
     if (f.min > 0 && c.score < f.min) return false;
     if (f.max != null && c.price == null) { hiddenNoPrice++; return false; }
@@ -609,7 +675,7 @@ async function renderBag() {
   const notes = [];
   if (hiddenNoScore) notes.push(`${hiddenNoScore} hidden (no score yet)`);
   if (hiddenNoPrice) notes.push(`${hiddenNoPrice} hidden (price not found)`);
-  $("fCount").textContent = `Showing ${rows.length} of ${cart.length}${notes.length ? " · " + notes.join(" · ") : ""}. Prices are compared as plain numbers, no currency conversion.`;
+  $("fCount").textContent = `${rows.length < cart.length ? "⚠ Filters are hiding " + (cart.length - rows.length) + " item(s). " : ""}Showing ${rows.length} of ${cart.length}${notes.length ? " · " + notes.join(" · ") : ""}. Prices are compared as plain numbers, no currency conversion.`;
 
   const live = cart.filter((c) => c.status !== "skipped" && typeof c.score === "number");
   const avg = live.length ? Math.round(live.reduce((s, c) => s + c.score, 0) / live.length) : null;
@@ -637,6 +703,7 @@ async function renderBag() {
       </div>
       <div class="acts">
         <button data-act="details" data-i="${i}">Full report</button>
+        <button data-act="swap" data-i="${i}">🌿 Greener swap</button>
         <button data-act="compare" data-i="${i}">+ Compare</button>
         <button data-act="bought" data-i="${i}">✓ Bought</button>
         <button data-act="skipped" data-i="${i}">✗ Skip</button>
@@ -659,6 +726,22 @@ async function renderBag() {
       item.status = item.status === act ? "bag" : act; // press again to undo
       await chrome.storage.local.set({ cart: data.cart });
       renderBag();
+    } else if (act === "swap") {
+      const card = b.closest(".item");
+      const open = card.querySelector(".swap");
+      if (open) { open.remove(); return; }
+      const g = searchName((GARMENTS[item.garment || "top"] || {}).label);
+      const top = (item.parts || []).slice().sort((x, y) => y.pct - x.pct)[0];
+      const main = top ? pretty(top.key) : "cotton";
+      const sw = document.createElement("div");
+      sw.className = "swap";
+      sw.innerHTML = `<div class="tip" style="margin-top:10px"><b>Organic ${esc(main)} ${esc(g)}</b>${shopLinks("organic " + main + " " + g)}</div>
+        <div class="tip"><b>GOTS certified ${esc(g)}</b>${shopLinks("GOTS organic " + g)}</div>
+        <div class="tip"><b>Cheaper &amp; greener:</b> try <b>cotton / linen / tencel ${esc(g)}</b>${shopLinks("linen cotton " + g)}</div>`;
+      const rec = document.createElement("div");
+      sw.appendChild(rec);
+      card.appendChild(sw);
+      loadRecommendations(rec, { name: item.title, garment: item.garment || "top", score: typeof item.score === "number" ? item.score : undefined });
     } else if (act === "compare") {
       if (typeof item.score !== "number") return;
       addToCompare({ material_label: item.label || item.title, eco_score: item.score, carbon_footprint_kg_co2e_per_kg: item.carbon, water_usage_l_per_kg: item.water });
@@ -678,7 +761,7 @@ async function openBagItem(item) {
   }
   try {
     const ok = await lookupParts(item.parts);
-    if (!ok.length) { out.innerHTML = `<div class="err">Those fabrics aren't in our database yet, or the backend isn't running.</div>`; return; }
+    if (!ok.length) { out.innerHTML = `<div class="err">Those fabrics aren't in our database yet, or the server is asleep. Try again in a moment.</div>`; return; }
     currentGarment = item.garment || "top";
     out.innerHTML = `<div id="bagRep"></div><div id="bagLabels"></div>`;
     renderReport(out.querySelector("#bagRep"), { title: item.title, subtitle: item.price != null ? "Price: " + fmtPrice(item.price, item.currency) : "", parts: ok });
@@ -686,7 +769,7 @@ async function openBagItem(item) {
     const info = { found: ECO_LABELS.filter((l) => ids.includes(l.id)), warnings: item.warnings || [] };
     out.querySelector("#bagLabels").innerHTML = labelsCardHTML(info, "Labels & claims when you added it");
   } catch (e) {
-    out.innerHTML = `<div class="err">Can't reach the backend. Run <b>python app.py</b>.</div>`;
+    out.innerHTML = `<div class="err">Can't reach the server. It may be waking up, so wait a few seconds and try again.</div>`;
   }
 }
 

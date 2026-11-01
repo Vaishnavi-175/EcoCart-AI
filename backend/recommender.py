@@ -1,0 +1,320 @@
+"""
+EcoCart AI - product recommendation engine (content-based filtering)
+
+Given a product (name + garment type + current eco score), find products in
+`catalog_products` that
+  1. are the same kind of garment      -> similarity
+  2. have a higher eco score           -> eco gain
+final = 0.55 * similarity + 0.45 * eco_gain
+
+Eco score of a catalog product:
+  - its own `eco_score` column, if present; else
+  - fabrics found in name / description / material text, looked up in `materials`.
+
+Open /recommend/debug to see which columns were detected.
+"""
+import os
+import re
+
+from flask import Blueprint, jsonify, request
+
+bp = Blueprint("recommender", __name__)
+
+TABLE = "catalog_products"
+
+CANDS = {
+    "name":  ["prod_name", "productdisplayname", "product_name", "name", "title"],
+    "cat":   ["product_type_name", "articletype", "article_type", "category", "product_type", "subcategory", "type"],
+    "group": ["product_group_name", "mastercategory", "master_category", "garment_group_name", "department_name"],
+    "desc":  ["detail_desc", "description", "details"],
+    "mat":   ["detected_material", "material", "fabric", "composition"],
+    "score": ["eco_score"],
+    "price": ["price"],
+    "img":   ["image_url", "image", "img", "image_link"],
+    "url":   ["product_url", "url", "link"],
+    "id":    ["id", "article_id", "product_id", "catalog_id"],
+}
+
+# garment key -> words that identify it in a catalog row
+GARMENT_WORDS = {
+    "tshirt":  ["t-shirt", "tshirt", "tee", "t shirt"],
+    "top":     ["top", "blouse", "kurti", "tunic"],
+    "shirt":   ["shirt", "blouse"],
+    "dress":   ["dress", "gown", "jumpsuit"],
+    "sweater": ["sweater", "jumper", "cardigan", "hoodie", "pullover"],
+    "saree":   ["saree", "sari"],
+    "jeans":   ["jeans", "trousers", "denim", "pants"],
+    "jacket":  ["jacket", "coat", "blazer"],
+}
+
+FABRIC_ALIASES = {
+    "rayon": "viscose_rayon", "viscose": "viscose_rayon", "lyocell": "tencel",
+    "jeans": "denim", "denim": "denim",
+}
+
+# fabric words are NOT used for similarity (a cotton top and a linen top are the same kind of product)
+FABRIC_WORDS = set("""cotton polyester silk wool denim nylon linen viscose rayon acrylic hemp tencel lyocell
+organic elastane spandex lycra modal bamboo jute leather fleece""".split())
+
+STOP = set("the and for with from this that men women mens womens ladies boys girls kids casual printed pure "
+           "regular fit buy apparel size wear new set pack online cart bag shop".split())
+
+_cache = {"cols": None, "materials": None}
+
+
+# ------------------------------------------------------------ DB helpers
+def _conn():
+    import psycopg2
+    url = os.environ.get("DATABASE_URL") or os.environ.get("NEON_DATABASE_URL") or os.environ.get("DB_URL")
+    if not url:
+        raise RuntimeError("DATABASE_URL environment variable not set")
+    return psycopg2.connect(url)
+
+
+def _columns(cur):
+    if _cache["cols"] is None:
+        cur.execute("SELECT column_name FROM information_schema.columns WHERE table_name = %s", (TABLE,))
+        have = {r[0].lower(): r[0] for r in cur.fetchall()}
+        picked = {}
+        for key, names in CANDS.items():
+            picked[key] = next((have[n] for n in names if n in have), None)
+        picked["_all"] = sorted(have.values())
+        _cache["cols"] = picked
+    return _cache["cols"]
+
+
+def _materials(cur):
+    """{label: eco_score} from the materials table. Never raises."""
+    if _cache["materials"] is None:
+        out = {}
+        try:
+            cur.execute("SELECT * FROM materials")
+            names = [d[0].lower() for d in cur.description]
+            lab = next((n for n in ["material_label", "material", "name", "label"] if n in names), names[0])
+            if "eco_score" in names:
+                for row in cur.fetchall():
+                    d = dict(zip(names, row))
+                    if d.get("eco_score") is not None:
+                        out[str(d[lab]).lower()] = float(d["eco_score"])
+        except Exception:
+            try:
+                cur.connection.rollback()
+            except Exception:
+                pass
+        _cache["materials"] = out
+    return _cache["materials"]
+
+
+# ------------------------------------------------------------ pure logic
+def tokens(text, drop_fabrics=True):
+    words = re.findall(r"[a-z]+", str(text or "").lower())
+    out = {w for w in words if len(w) >= 3 and w not in STOP}
+    if drop_fabrics:
+        out -= FABRIC_WORDS
+    return out
+
+
+def fabric_score(text, materials):
+    """Average eco score of the fabrics mentioned in text (each fabric counted once)."""
+    if not materials:
+        return None
+    t = " " + str(text or "").lower().replace("-", " ") + " "
+    names = {label.replace("_", " "): label for label in materials}
+    for alias, label in FABRIC_ALIASES.items():
+        if label in materials:
+            names[alias] = label
+    found, used = [], set()
+    for phrase in sorted(names, key=len, reverse=True):
+        pat = r"\b" + re.escape(phrase) + r"\b"
+        if re.search(pat, t):
+            if names[phrase] not in used:
+                used.add(names[phrase])
+                found.append(materials[names[phrase]])
+            t = re.sub(pat, " ", t)
+    return round(sum(found) / len(found), 1) if found else None
+
+
+def similarity(q, p):
+    if not q or not p:
+        return 0.0
+    return len(q & p) / ((len(q) * len(p)) ** 0.5)
+
+
+def rank(rows, cols, materials, query_tokens, current_score=None, limit=5, max_price=None):
+    """Returns (recommendations, diagnostics)."""
+    diag = {"scanned": len(rows), "with_score": 0, "higher_score": 0, "similar": 0}
+    out, seen = [], set()
+    for r in rows:
+        name = str(r.get(cols["name"]) or "").strip() if cols["name"] else ""
+        if not name or name.lower() in seen:
+            continue
+
+        # ---- eco score of this catalog product
+        score = None
+        if cols["score"] and r.get(cols["score"]) is not None:
+            try:
+                score = float(r[cols["score"]])
+            except (TypeError, ValueError):
+                score = None
+        if score is None:
+            text = " ".join(str(r.get(cols[k]) or "") for k in ("name", "cat", "desc", "mat") if cols[k])
+            score = fabric_score(text, materials)
+        if score is None:
+            continue
+        diag["with_score"] += 1
+
+        if current_score is not None and score <= current_score:
+            continue
+        diag["higher_score"] += 1
+
+        # ---- price filter
+        price = r.get(cols["price"]) if cols["price"] else None
+        try:
+            price = float(price) if price is not None else None
+        except (TypeError, ValueError):
+            price = None
+        if max_price is not None and price is not None and price > max_price:
+            continue
+
+        # ---- similarity (garment kind)
+        p_tokens = tokens(name) | tokens(r.get(cols["cat"]) if cols["cat"] else "") \
+                   | tokens(r.get(cols["group"]) if cols["group"] else "")
+        sim = similarity(query_tokens, p_tokens)
+        if query_tokens and sim <= 0:
+            continue
+        diag["similar"] += 1
+
+        base = current_score if current_score is not None else 0
+        gain = max(0.0, min(1.0, (score - base) / 40.0))
+        final = 0.55 * min(1.0, sim * 1.5) + 0.45 * gain
+
+        seen.add(name.lower())
+        out.append({
+            "name": name,
+            "score": round(score),
+            "gain": round(score - base) if current_score is not None else None,
+            "similarity": round(min(1.0, sim * 1.5), 2),
+            "match": round(final, 3),
+            "price": price,
+            "image": r.get(cols["img"]) if cols["img"] else None,
+            "url": r.get(cols["url"]) if cols["url"] else None,
+            "category": r.get(cols["cat"]) if cols["cat"] else None,
+        })
+    out.sort(key=lambda x: x["match"], reverse=True)
+    return out[:limit], diag
+
+
+# ------------------------------------------------------------ routes
+@bp.route("/recommend", methods=["GET"])
+def recommend():
+    name = request.args.get("name", "").strip()
+    garment = request.args.get("garment", "").strip().lower()
+    try:
+        current = float(request.args["score"]) if request.args.get("score") else None
+        limit = max(1, min(10, int(request.args.get("limit", 5))))
+        max_price = float(request.args["max_price"]) if request.args.get("max_price") else None
+    except ValueError:
+        return jsonify({"error": "score, limit and max_price must be numbers"}), 400
+
+    gwords = GARMENT_WORDS.get(garment, [])
+    q_tokens = tokens(name)
+    for g in gwords:
+        q_tokens |= tokens(g)
+    if not q_tokens:
+        return jsonify({"error": "give a product name or a garment type"}), 400
+
+    conn = None
+    try:
+        conn = _conn()
+        cur = conn.cursor()
+        cols = _columns(cur)
+        if not cols["name"]:
+            return jsonify({"error": "no name column found in " + TABLE, "columns": cols["_all"]}), 500
+        materials = _materials(cur)
+
+        # words used to pull candidate rows from SQL (garment words first, then words of the title)
+        search = []
+        for w in gwords + sorted(tokens(name), key=len, reverse=True):
+            w = w.strip()
+            if w and w not in search:
+                search.append(w)
+        search = search[:10]
+        text_cols = [cols[k] for k in ("name", "cat", "group") if cols[k]]
+
+        where, params = [], []
+        for s in search:
+            for c in text_cols:
+                where.append(f'"{c}" ILIKE %s')
+                params.append(f"%{s}%")
+        sql = f'SELECT * FROM "{TABLE}"' + (" WHERE " + " OR ".join(where) if where else "") + " LIMIT 6000"
+        cur.execute(sql, params)
+        names = [d[0] for d in cur.description]
+        rows = [dict(zip(names, r)) for r in cur.fetchall()]
+
+        # nothing matched the words: take a plain sample so we still try something
+        if not rows:
+            cur.execute(f'SELECT * FROM "{TABLE}" LIMIT 3000')
+            names = [d[0] for d in cur.description]
+            rows = [dict(zip(names, r)) for r in cur.fetchall()]
+
+        total = None
+        try:
+            cur.execute(f'SELECT COUNT(*) FROM "{TABLE}"')
+            total = cur.fetchone()[0]
+        except Exception:
+            pass
+
+        recs, diag = rank(rows, cols, materials, q_tokens,
+                          current_score=current, limit=limit, max_price=max_price)
+
+        note = None
+        if not recs:
+            if diag["scanned"] == 0:
+                note = "The catalog table is empty."
+            elif diag["with_score"] == 0:
+                note = ("Catalog products have no eco score and no known fabric in their text, "
+                        "so none can be scored. Add an eco_score column or a material column.")
+            elif diag["higher_score"] == 0:
+                note = "No catalog product has a higher eco score than this one."
+            else:
+                note = "No similar product with a higher eco score was found in the catalog."
+
+        return jsonify({
+            "query": " ".join(sorted(q_tokens)), "current_score": current,
+            "catalog_size": total, "diagnostics": diag,
+            "recommendations": recs, "note": note,
+        })
+    except Exception as e:
+        return jsonify({"error": "recommendation failed", "detail": str(e)[:300]}), 500
+    finally:
+        if conn:
+            conn.close()
+
+
+@bp.route("/recommend/debug", methods=["GET"])
+def debug():
+    conn = None
+    try:
+        conn = _conn()
+        cur = conn.cursor()
+        _cache["cols"] = None
+        _cache["materials"] = None
+        cols = _columns(cur)
+        cur.execute(f'SELECT COUNT(*) FROM "{TABLE}"')
+        total = cur.fetchone()[0]
+        mats = _materials(cur)
+        cur.execute(f'SELECT * FROM "{TABLE}" LIMIT 1')
+        names = [d[0] for d in cur.description]
+        sample = dict(zip(names, cur.fetchone() or []))
+        return jsonify({
+            "table": TABLE, "rows": total,
+            "detected_columns": {k: v for k, v in cols.items() if k != "_all"},
+            "all_columns": cols["_all"],
+            "materials_loaded": len(mats), "materials": mats,
+            "sample_row": {k: str(v)[:80] for k, v in sample.items()},
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)[:300]}), 500
+    finally:
+        if conn:
+            conn.close()

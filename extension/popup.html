@@ -23,8 +23,8 @@ body { width: 410px; min-height: 580px; font-family: "Segoe UI", system-ui, Aria
 .hero-line { position: relative; z-index: 1; margin-top: 14px; font-size: 12px; opacity: .85; line-height: 1.5; }
 
 /* TABS */
-.tabs { display: grid; grid-template-columns: repeat(6, 1fr); gap: 2px; margin: -14px 12px 12px; padding: 4px; background: #fff; border-radius: 14px; box-shadow: 0 8px 22px rgba(11,46,33,.14); position: relative; z-index: 2; }
-.tab { border: none; background: transparent; padding: 7px 0 6px; border-radius: 10px; font-size: 9.5px; font-weight: 700; color: var(--muted); cursor: pointer; transition: all .18s; display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.tabs { display: grid; grid-template-columns: repeat(5, 1fr); gap: 2px; margin: -14px 12px 12px; padding: 4px; background: #fff; border-radius: 14px; box-shadow: 0 8px 22px rgba(11,46,33,.14); position: relative; z-index: 2; }
+.tab { border: none; background: transparent; padding: 7px 0 6px; border-radius: 10px; font-size: 10.5px; font-weight: 700; color: var(--muted); cursor: pointer; transition: all .18s; display: flex; flex-direction: column; align-items: center; gap: 2px; }
 .tab .i { font-size: 15px; line-height: 1; }
 .item { background: #fff; border: 1px solid var(--line); border-radius: 16px; padding: 12px; margin-top: 10px; box-shadow: 0 6px 18px rgba(11,46,33,.05); }
 .item .top { display: flex; gap: 10px; align-items: center; }
@@ -189,6 +189,11 @@ select { width: 100%; padding: 11px; border: 1.5px solid var(--line); border-rad
 .scopesel { display: flex; gap: 8px; align-items: center; margin-bottom: 4px; font-size: 12px; color: #5b7064; font-weight: 600; }
 .scopesel select { flex: 1; padding: 8px 10px; font-size: 12px; }
 .danger { background: #fdeeee; color: #c0605f; }
+.camBtns { display: flex; gap: 8px; margin-top: 10px; }
+.camBtns .btn { flex: 1; padding: 11px; }
+.tipbox { margin-top: 10px; padding: 9px 12px; border-radius: 12px; background: #f1fbf6; border: 1px dashed #b9e3cc; font-size: 11.5px; line-height: 1.45; color: #3d5649; }
+.panel.drop { outline: 2px dashed var(--mint); outline-offset: -4px; border-radius: 16px; }
+.chip.on { background: var(--leaf); color: #fff; border-color: var(--leaf); }
 </style>
 </head>
 <body>
@@ -206,7 +211,6 @@ select { width: 100%; padding: 11px; border: 1.5px solid var(--line); border-rad
 
 <div class="tabs">
   <button class="tab active" data-tab="material"><span class="i">🌱</span>Material</button>
-  <button class="tab" data-tab="barcode"><span class="i">▦</span>Barcode</button>
   <button class="tab" data-tab="camera"><span class="i">📷</span>Camera</button>
   <button class="tab" data-tab="bag"><span class="i">🛍</span>Bag <span class="n" id="bagCount">0</span></button>
   <button class="tab" data-tab="compare"><span class="i">⚖</span>Compare <span class="n" id="cmpCount">0</span></button>
@@ -224,25 +228,17 @@ select { width: 100%; padding: 11px; border: 1.5px solid var(--line); border-rad
   <div id="materialOut"></div>
 </section>
 
-<!-- BARCODE (clothing only) -->
-<section class="panel" id="panel-barcode">
-  <div class="row">
-    <input id="barcodeInput" placeholder="Enter clothing barcode digits" inputmode="numeric">
-    <button class="btn" id="barcodeBtn">Check</button>
-  </div>
-  <input type="file" id="bcPhoto" accept="image/*" capture="environment" style="display:none">
-  <button class="scan-btn" id="bcPhotoBtn">📷 Read barcode from a photo</button>
-  <div class="sub" style="margin:8px 2px 0">Clothing only. Matches products in the EcoCart catalog. If the product isn't there, check its fabric from the care label in the Material tab.</div>
-  <div id="barcodeOut"></div>
-</section>
-
 <!-- CAMERA -->
 <section class="panel" id="panel-camera">
-  <div class="empty" id="camIntro"><span class="big">📷</span>Take a photo of a garment or upload one.<br>We detect the type, then you pick the fabric.</div>
+  <div class="empty" id="camIntro"><span class="big">📷</span>Take a photo of a garment, or drop / upload one.<br>We detect the garment, then you pick the fabric.</div>
   <img id="camPreview" class="preview" style="display:none" alt="">
-  <input type="file" id="camFile" accept="image/*" capture="environment" style="display:none">
-  <button class="btn full" id="camPick">📷 Take or upload photo</button>
-  <button class="btn ghost full" id="camDetect" style="display:none">Detect garment</button>
+  <input type="file" id="camFileCam" accept="image/*" capture="environment" style="display:none">
+  <input type="file" id="camFileUp" accept="image/*" style="display:none">
+  <div class="camBtns">
+    <button class="btn" id="camTake">📷 Take photo</button>
+    <button class="btn ghost" id="camUpload">🖼 Upload</button>
+  </div>
+  <div class="tipbox"><b>Better results:</b> lay the garment flat, plain background, good light, whole garment in the frame.</div>
   <div id="camOut"></div>
 </section>
 

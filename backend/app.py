@@ -11,6 +11,8 @@ from garment_detector import detect_garments
 
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})
+from recommender import bp as recommender_bp
+app.register_blueprint(recommender_bp)
 
 DB_CONFIG = {
     "host": os.getenv("DB_HOST", "localhost"),
@@ -295,138 +297,46 @@ def analyse_packaging(p):
 
 
 # ---------- BARCODE LOOKUP ----------
-OPEN_FACTS_SOURCES = [
-    ("food", "https://world.openfoodfacts.org"),
-    ("cosmetics", "https://world.openbeautyfacts.org"),
-    ("general", "https://world.openproductsfacts.org"),
-]
-OPEN_FACTS_HEADERS = {"User-Agent": "EcoCartAI/1.0 (student project)"}
 
-
-def clean_tags(tags):
-    out = []
-    for t in tags or []:
-        s = str(t)
-        if ":" in s:
-            s = s.split(":", 1)[1]
-        out.append(s.replace("-", " "))
-    return out
-
+# ---------- BARCODE LOOKUP ----------
 
 @app.route("/barcode/<code>")
 def barcode_lookup(code):
     code = code.strip()
 
-    conn = get_connection()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("""
-        SELECT c.*, m.carbon_footprint_kg_co2e_per_kg, m.water_usage_l_per_kg,
-               m.confidence_score, m.impact_category, m.source
-        FROM catalog_products c
-        JOIN materials m ON c.material_label = m.material_label
-        WHERE c.barcode = %s
-    """, (code,))
-    local = cur.fetchone()
-    cur.close()
-    conn.close()
-
-    if local:
-        local = dict(local)
-        score = calculate_eco_score(local["carbon_footprint_kg_co2e_per_kg"], local["water_usage_l_per_kg"])
-        return jsonify({
-            "barcode": code,
-            "category": "clothing",
-            "source": "EcoCart AI catalog (demo barcode)",
-            "name": local["name"],
-            "brand": local["brand"],
-            "quantity": None,
-            "image": local["image_url"],
-            "labels": None,
-            "material_label": local["material_label"],
-            "eco_score": score,
-            "eco_score_label": score_label(score),
-            "carbon_kg_co2e_per_kg": local["carbon_footprint_kg_co2e_per_kg"],
-            "packaging_text": local["packaging"],
-            "env_grade": None,
-            "env_score": None,
-            "nutrition": {},
-            "nutrient_levels": {},
-            "nutriscore_grade": None,
-            "nova_group": None,
-            "additives": [],
-            "allergens": [],
-            "ingredients": "",
-            "packaging_analysis": analyse_packaging({"packaging": local["packaging"]})
-        })
-
     if not code.isdigit() or not (8 <= len(code) <= 14):
         return jsonify({"error": "Invalid barcode. Use 8 to 14 digits."}), 400
 
-    for category, base in OPEN_FACTS_SOURCES:
-        try:
-            r = requests.get(f"{base}/api/v2/product/{code}.json", headers=OPEN_FACTS_HEADERS, timeout=8)
-            if r.status_code != 200:
-                continue
-            data = r.json()
-        except Exception:
-            continue
+    conn = get_connection()
+    try:
+        cur = conn.cursor(
+            cursor_factory=psycopg2.extras.RealDictCursor
+        )
+        cur.execute("""
+            SELECT barcode, product_name, brand, material_text
+            FROM public.ecocart_barcode_map
+            WHERE barcode = %s
+        """, (code,))
 
-        p = data.get("product")
-        if not p:
-            continue
+        local = cur.fetchone()
+        cur.close()
+    finally:
+        conn.close()
 
-        grade = p.get("ecoscore_grade") or p.get("environmental_score_grade")
-        if grade not in ("a", "b", "c", "d", "e"):
-            grade = None
-        score = p.get("ecoscore_score")
-        if score is None:
-            score = p.get("environmental_score_score")
-        if not isinstance(score, (int, float)):
-            score = None
-
-        carbon = None
-        eco_data = p.get("ecoscore_data")
-        if isinstance(eco_data, dict):
-            agri = eco_data.get("agribalyse")
-            if isinstance(agri, dict) and isinstance(agri.get("co2_total"), (int, float)):
-                carbon = round(agri["co2_total"], 2)
-
-        n = p.get("nutriments") or {}
-
-        def num(key):
-            v = n.get(key)
-            return round(float(v), 2) if isinstance(v, (int, float)) else None
-
-        nutrition = {
-            "energy_kcal": num("energy-kcal_100g"), "fat": num("fat_100g"),
-            "saturated_fat": num("saturated-fat_100g"), "carbs": num("carbohydrates_100g"),
-            "sugars": num("sugars_100g"), "fiber": num("fiber_100g"),
-            "protein": num("proteins_100g"), "salt": num("salt_100g"),
-        }
-
-        nova = p.get("nova_group")
-        if not isinstance(nova, int):
-            nova = None
-
-        ingredients = (p.get("ingredients_text") or "").strip()
-        if len(ingredients) > 400:
-            ingredients = ingredients[:400] + "..."
-
+    if local:
         return jsonify({
-            "barcode": code, "category": category, "source": base,
-            "name": p.get("product_name") or p.get("generic_name"),
-            "brand": p.get("brands"), "quantity": p.get("quantity"),
-            "image": p.get("image_front_url") or p.get("image_url"),
-            "labels": p.get("labels"), "nutrition": nutrition,
-            "nutrient_levels": p.get("nutrient_levels") or {},
-            "nutriscore_grade": p.get("nutriscore_grade"), "nova_group": nova,
-            "additives": [a.upper() for a in clean_tags(p.get("additives_tags"))],
-            "allergens": clean_tags(p.get("allergens_tags")), "ingredients": ingredients,
-            "env_grade": grade, "env_score": score, "carbon_kg_co2e_per_kg": carbon,
-            "packaging_text": p.get("packaging"), "packaging_analysis": analyse_packaging(p),
+            "barcode": code,
+            "category": "clothing",
+            "source": "EcoCart AI barcode map",
+            "name": local["product_name"],
+            "brand": local["brand"],
+            "material_label": local["material_text"],
+            "eco_score": 70
         })
 
-    return jsonify({"error": "Product not found in our catalog or Open Food, Beauty, Products Facts"}), 404
+    return jsonify({
+        "error": "Barcode not found in the EcoCart clothing catalog. Add the product details first."
+    }), 404
 
 
 # ---------- CAMERA / IMAGE DETECTION ----------
