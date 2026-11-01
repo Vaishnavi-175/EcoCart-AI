@@ -7,10 +7,12 @@ import requests
 import re
 import os
 import tempfile
-from garment_detector import detect_garments
+import traceback
 
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})
+
+# product recommendation engine (see recommender.py): /recommend and /recommend/debug
 from recommender import bp as recommender_bp
 app.register_blueprint(recommender_bp)
 
@@ -296,49 +298,6 @@ def analyse_packaging(p):
     return result
 
 
-# ---------- BARCODE LOOKUP ----------
-
-# ---------- BARCODE LOOKUP ----------
-
-@app.route("/barcode/<code>")
-def barcode_lookup(code):
-    code = code.strip()
-
-    if not code.isdigit() or not (8 <= len(code) <= 14):
-        return jsonify({"error": "Invalid barcode. Use 8 to 14 digits."}), 400
-
-    conn = get_connection()
-    try:
-        cur = conn.cursor(
-            cursor_factory=psycopg2.extras.RealDictCursor
-        )
-        cur.execute("""
-            SELECT barcode, product_name, brand, material_text
-            FROM public.ecocart_barcode_map
-            WHERE barcode = %s
-        """, (code,))
-
-        local = cur.fetchone()
-        cur.close()
-    finally:
-        conn.close()
-
-    if local:
-        return jsonify({
-            "barcode": code,
-            "category": "clothing",
-            "source": "EcoCart AI barcode map",
-            "name": local["product_name"],
-            "brand": local["brand"],
-            "material_label": local["material_text"],
-            "eco_score": 70
-        })
-
-    return jsonify({
-        "error": "Barcode not found in the EcoCart clothing catalog. Add the product details first."
-    }), 404
-
-
 # ---------- CAMERA / IMAGE DETECTION ----------
 @app.route("/detect", methods=["POST", "OPTIONS"])
 def detect():
@@ -346,6 +305,16 @@ def detect():
         return jsonify({}), 200
     if "image" not in request.files:
         return jsonify({"error": "No image uploaded"}), 400
+
+    # The model is loaded only when the camera is used, so a model problem
+    # (missing torch / not enough memory) can no longer stop the whole server.
+    try:
+        from garment_detector import detect_garments
+    except Exception as e:
+        traceback.print_exc()   # shows the real reason in the Render logs
+        return jsonify({"error": "Garment detection model is not available on the server",
+                        "detail": str(e)[:200]}), 503
+
     image_file = request.files["image"]
     tmp_path = None
     try:
@@ -357,7 +326,8 @@ def detect():
         predictions.sort(key=lambda p: p["confidence"], reverse=True)
         return jsonify({"predictions": predictions})
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        traceback.print_exc()
+        return jsonify({"error": "Detection failed", "detail": str(e)[:200]}), 500
     finally:
         if tmp_path and os.path.exists(tmp_path):
             os.remove(tmp_path)
