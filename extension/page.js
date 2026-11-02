@@ -126,47 +126,162 @@ async function loadAlternatives(score, carbon, exclude, box, garmentLabel, mainK
     }).join("") + certBlock;
 }
 
-// ---------- Recommendation engine: similar products with a higher eco score (from our catalog) ----------
-async function loadRecommendations(box, q) {
-  box.innerHTML = `<div class="sec">🤖 Recommended products (from our catalog)</div>${skeleton()}
-    <div class="sub" id="recWait">Searching our catalog…</div>`;
+// =====================================================================
+// SMART SWAPS: similar products with a higher eco score (from our catalog)
+// =====================================================================
+function injectRecStyles() {
+  if (document.getElementById("rcStyle")) return;
+  const s = document.createElement("style");
+  s.id = "rcStyle";
+  s.textContent = `
+  .rc-intro{font-size:11.5px;color:#5d7266;margin:-2px 0 8px;line-height:1.4}
+  .rc-tools{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 10px}
+  .rc-card{position:relative;background:#fff;border:1.5px solid #e1ece5;border-radius:16px;padding:11px;margin-bottom:10px;
+    box-shadow:0 2px 8px rgba(26,90,60,.06);transition:transform .15s,box-shadow .15s;animation:rcIn .35s ease both}
+  .rc-card:hover{transform:translateY(-1px);box-shadow:0 6px 16px rgba(26,90,60,.12)}
+  .rc-card.best{border-color:#1a9b66;background:linear-gradient(180deg,#f2fbf6,#fff 60%)}
+  .rc-badge{position:absolute;top:-9px;left:12px;background:#1a9b66;color:#fff;font-size:9.5px;font-weight:800;letter-spacing:.6px;
+    padding:3px 9px;border-radius:999px;box-shadow:0 2px 6px rgba(26,155,102,.4)}
+  .rc-top{display:flex;gap:10px;align-items:center}
+  .rc-img{width:56px;height:56px;border-radius:12px;object-fit:cover;flex-shrink:0;background:#eef5f0}
+  .rc-ph{width:56px;height:56px;border-radius:12px;flex-shrink:0;background:#eef5f0;display:flex;align-items:center;justify-content:center;font-size:24px}
+  .rc-info{flex:1;min-width:0}
+  .rc-name{font-weight:700;font-size:12.5px;line-height:1.3;color:#14281f;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .rc-meta{font-size:11px;color:#6a7f73;margin-top:2px}
+  .rc-score{width:42px;height:42px;border-radius:50%;color:#fff;font-weight:800;font-size:15px;display:flex;align-items:center;justify-content:center;flex-shrink:0;
+    box-shadow:0 3px 8px rgba(0,0,0,.18)}
+  .rc-bar{margin:9px 0 6px;display:flex;align-items:center;gap:8px;font-size:10.5px;color:#6a7f73}
+  .rc-bar i{flex:1;height:6px;border-radius:99px;background:#e8f0ea;overflow:hidden;display:block}
+  .rc-bar em{display:block;height:100%;border-radius:99px;background:linear-gradient(90deg,#7fd1a8,#1a9b66)}
+  .rc-why{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:8px}
+  .rc-why span{font-size:10.5px;padding:3px 8px;border-radius:999px;background:#eaf6ef;color:#17744d;font-weight:600}
+  .rc-why span.p{background:#fff4e1;color:#9a6208}
+  .rc-acts{display:flex;flex-wrap:wrap;gap:6px}
+  .rc-btn{font:inherit;font-size:11px;font-weight:700;padding:6px 10px;border-radius:9px;border:1.5px solid #cfe2d6;background:#fff;color:#17744d;
+    cursor:pointer;text-decoration:none;transition:background .12s}
+  .rc-btn:hover{background:#eaf6ef}
+  .rc-btn.pri{background:#1a9b66;border-color:#1a9b66;color:#fff}
+  .rc-btn.pri:hover{background:#158557}
+  .rc-btn:disabled{opacity:.6;cursor:default}
+  .rc-empty{padding:14px;border-radius:14px;background:#f4faf6;border:1.5px dashed #bfd9c8;font-size:12px;color:#355445;line-height:1.5}
+  .rc-empty b{display:block;font-size:13px;margin-bottom:3px}
+  .rc-foot{font-size:10.5px;color:#7a8f84;margin-top:4px;line-height:1.4}
+  .rc-shim{height:92px;border-radius:16px;margin-bottom:10px;background:linear-gradient(100deg,#eef5f0 30%,#f8fcf9 50%,#eef5f0 70%);background-size:200% 100%;animation:rcShim 1.2s infinite}
+  @keyframes rcShim{to{background-position:-200% 0}}
+  @keyframes rcIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+  `;
+  document.head.appendChild(s);
+}
+
+async function loadRecommendations(box, q, st) {
+  injectRecStyles();
+  st = st || { sort: "match", same: false };
+  const HEAD = `<div class="sec">🤖 Smart swaps from our catalog</div>`;
+  box.innerHTML = `${HEAD}<div class="rc-shim"></div><div class="rc-shim" style="height:70px"></div><div class="sub" id="recWait">Searching our catalog…</div>`;
   const slow = setTimeout(() => { const w = box.querySelector("#recWait"); if (w) w.textContent = "The server is waking up. This can take up to a minute…"; }, 6000);
   const ctl = new AbortController();
   const killer = setTimeout(() => ctl.abort(), 90000);
+
   try {
-    const qs = new URLSearchParams({ name: q.name || "", garment: q.garment || "", limit: "4" });
+    const qs = new URLSearchParams({ name: q.name || "", garment: q.garment || "", limit: "8" });
     if (typeof q.score === "number") qs.set("score", String(q.score));
+    if (typeof q.carbon === "number") qs.set("carbon", String(q.carbon));
+    if (typeof q.price === "number") {
+      qs.set("price", String(q.price));
+      if (st.same) qs.set("max_price", String(Math.round(q.price * 1.3)));
+    }
     const res = await fetch(`${API}/recommend?${qs}`, { signal: ctl.signal });
     const d = await res.json().catch(() => ({}));
-    if (res.status === 404) throw new Error("the recommendation service is not on the server yet (deploy backend/recommender.py)");
-    if (!res.ok) throw new Error((d.error || "server error") + (d.detail ? ": " + d.detail : ""));
+    if (!res.ok) throw new Error(d.detail || d.error || "failed (" + res.status + ")");
     const recs = d.recommendations || [];
+
+    const retryTools = () => `<div class="rc-tools">${typeof q.price === "number" ? `<span class="chip ${st.same ? "on" : ""}" data-same="1">≈ Similar price</span>` : ""}</div>`;
+    const wireTools = () => {
+      const sm = box.querySelector("[data-same]");
+      if (sm) sm.addEventListener("click", () => { st.same = !st.same; loadRecommendations(box, q, st); });
+    };
+
     if (!recs.length) {
-      box.innerHTML = `<div class="sec">🤖 Recommended products (from our catalog)</div>
-        <div class="tip">${esc(d.note || "No similar product with a higher eco score was found in our catalog.")}</div>`;
+      const g = d.diagnostics
+        ? `<div class="rc-foot">Checked ${esc(d.diagnostics.scanned)} products · ${esc(d.diagnostics.with_score)} scored · ${esc(d.diagnostics.higher_score)} greener.</div>` : "";
+      box.innerHTML = `${HEAD}${retryTools()}<div class="rc-empty"><b>${st.same ? "Nothing in this price range" : "No swap needed"}</b>${esc(d.note || "No similar product with a higher eco score was found in our catalog.")}</div>${g}`;
+      wireTools();
       return;
     }
-    box.innerHTML = `<div class="sec">🤖 Recommended products (from our catalog)</div>` + recs.map((r) => {
-      const img = r.image ? `<img src="${esc(r.image)}" alt="" style="width:46px;height:46px;object-fit:cover;border-radius:10px;flex-shrink:0">` : "";
-      const link = r.url
-        ? `<a class="chip" style="text-decoration:none" target="_blank" rel="noopener" href="${esc(r.url)}">View ↗</a>`
-        : "";
-      return `<div class="alt" style="display:block">
-        <div style="display:flex;align-items:center;gap:10px">${img}
-          <div class="info"><b style="text-transform:none">${esc(r.name)}</b>
-            <div class="gain">${r.gain != null ? "+" + esc(r.gain) + " eco points · " : ""}${Math.round(r.similarity * 100)}% similar${r.price != null ? " · ₹" + esc(Math.round(r.price)) : ""}</div></div>
-          <div class="sc">${esc(r.score)}</div>
-        </div>
-        <div class="chips" style="margin-top:6px">${link}${SHOPS.slice(0, 2).map(([n, f]) =>
-          `<a class="chip" style="text-decoration:none" target="_blank" rel="noopener" href="${esc(f(r.name))}">${n} ↗</a>`).join("")}</div>
+
+    const draw = () => {
+      const list = recs.slice();
+      if (st.sort === "green") list.sort((a, b) => b.score - a.score);
+      else if (st.sort === "cheap") list.sort((a, b) => (a.price ?? Infinity) - (b.price ?? Infinity));
+      else list.sort((a, b) => b.match - a.match);
+      const shown = list.slice(0, 5);
+
+      const tools = `<div class="rc-tools">
+        <span class="chip ${st.sort === "match" ? "on" : ""}" data-sort="match">★ Best match</span>
+        <span class="chip ${st.sort === "green" ? "on" : ""}" data-sort="green">🌿 Greenest</span>
+        <span class="chip ${st.sort === "cheap" ? "on" : ""}" data-sort="cheap">₹ Cheapest</span>
+        ${typeof q.price === "number" ? `<span class="chip ${st.same ? "on" : ""}" data-same="1">≈ Similar price</span>` : ""}
       </div>`;
-    }).join("") + `<div class="sub">Found by comparing product names and categories (similarity) and fabric eco scores. ${d.catalog_size ? "Catalog size: " + esc(Number(d.catalog_size).toLocaleString()) + " products." : ""}</div>`;
+
+      const cards = shown.map((r, i) => {
+        const isBest = st.sort === "match" && i === 0;
+        const img = r.image && /^https?:/i.test(r.image) ? `<img class="rc-img" src="${esc(r.image)}" alt="">` : `<div class="rc-ph">👕</div>`;
+        const sim = Math.round((r.similarity || 0) * 100);
+        const why = (r.reasons || []).map((t) => `<span class="${/cheaper/.test(t) ? "p" : ""}">${esc(t)}</span>`).join("");
+        const link = r.url && /^https?:/i.test(r.url) ? `<a class="rc-btn pri" target="_blank" rel="noopener" href="${esc(r.url)}">View ↗</a>` : "";
+        const shops = SHOPS.slice(0, 2).map(([n, f]) => `<a class="rc-btn" target="_blank" rel="noopener" href="${esc(f(r.name))}">${n} ↗</a>`).join("");
+        return `<div class="rc-card ${isBest ? "best" : ""}" style="animation-delay:${i * 60}ms">
+          ${isBest ? `<span class="rc-badge">★ BEST PICK</span>` : ""}
+          <div class="rc-top">${img}
+            <div class="rc-info"><div class="rc-name">${esc(r.name)}</div>
+              <div class="rc-meta">${r.price != null ? "₹" + esc(Math.round(r.price)) : "Price n/a"}${r.category ? " · " + esc(r.category) : ""}</div></div>
+            <div class="rc-score" style="background:${colorFor(r.score)}">${esc(r.score)}</div>
+          </div>
+          <div class="rc-bar"><span>${r.same_type ? "Same type" : "Close match"}</span><i><em style="width:${sim}%"></em></i><span>${sim}%</span></div>
+          ${why ? `<div class="rc-why">${why}</div>` : ""}
+          <div class="rc-acts">${link}${shops}
+            <button class="rc-btn" data-act="cmp" data-i="${i}">+ Compare</button>
+            <button class="rc-btn" data-act="bag" data-i="${i}">🛍 Add to bag</button></div>
+        </div>`;
+      }).join("");
+
+      const loose = shown.some((r) => !r.same_type);
+      box.innerHTML = HEAD +
+        `<div class="rc-intro">Similar products from our catalog with a better eco score${typeof q.score === "number" ? " than " + esc(q.score) : ""}.</div>` +
+        tools + cards +
+        `<div class="rc-foot">${loose ? "Some results are close matches, not the exact garment type. " : ""}Ranked by garment similarity, eco gain and price. ${d.catalog_size ? "Catalog: " + esc(Number(d.catalog_size).toLocaleString()) + " products." : ""} Scores for catalog items are estimated from the fabric named in their description.</div>`;
+
+      box.querySelectorAll("img.rc-img").forEach((im) => im.addEventListener("error", () => im.replaceWith(Object.assign(document.createElement("div"), { className: "rc-ph", textContent: "👕" }))));
+      box.querySelectorAll("[data-sort]").forEach((c) => c.addEventListener("click", () => { st.sort = c.dataset.sort; draw(); }));
+      const sm = box.querySelector("[data-same]");
+      if (sm) sm.addEventListener("click", () => { st.same = !st.same; loadRecommendations(box, q, st); });
+
+      box.querySelectorAll("button[data-act]").forEach((b) => b.addEventListener("click", async () => {
+        const r = shown[Number(b.dataset.i)];
+        if (!r) return;
+        if (b.dataset.act === "cmp") {
+          addToCompare({ material_label: r.name, eco_score: r.score, carbon_footprint_kg_co2e_per_kg: r.carbon ?? null, water_usage_l_per_kg: null });
+        } else {
+          let site = "EcoCart catalog";
+          try { if (r.url) site = new URL(r.url).hostname.replace(/^www\./, ""); } catch (e) {}
+          const fabs = r.fabrics || [];
+          await addEntryToBag({
+            title: r.name, url: r.url || "", site, image: r.image || null, price: r.price ?? null, currency: "INR",
+            parts: fabs.map((f) => ({ key: f, pct: Math.round(100 / fabs.length) })), guessed: true,
+            score: r.score, carbon: r.carbon ?? null, water: null, label: fabs.map(pretty).join(" / "),
+            garment: currentGarment, certs: [], warnings: []
+          });
+          b.textContent = "✓ Added";
+          b.disabled = true;
+        }
+      }));
+    };
+    draw();
   } catch (e) {
-    box.innerHTML = `<div class="sec">🤖 Recommended products (from our catalog)</div>
-      <div class="tip">Couldn't load recommendations right now (${esc(e.name === "AbortError" ? "server too slow" : e.message)}).
-      <button class="btn ghost small" id="recRetry" style="margin-top:6px;padding:6px 12px">↻ Try again</button></div>`;
+    box.innerHTML = `${HEAD}<div class="rc-empty"><b>Couldn't load swaps</b>${esc(e.name === "AbortError" ? "The server took too long. It may be asleep." : e.message)}
+      <div style="margin-top:8px"><button class="rc-btn pri" id="recRetry">↻ Try again</button></div></div>`;
     const rb = box.querySelector("#recRetry");
-    if (rb) rb.addEventListener("click", () => loadRecommendations(box, q));
+    if (rb) rb.addEventListener("click", () => loadRecommendations(box, q, st));
   } finally {
     clearTimeout(slow); clearTimeout(killer);
   }
@@ -196,7 +311,7 @@ function labelsCardHTML(info, heading) {
 
 // =====================================================================
 // THE GARMENT REPORT - one card used by Material, Camera, Scan, Bag
-// opts: { title, subtitle, parts:[{key,pct,data}], track?: {url,site,image,price,currency}, certs?:[ids] }
+// opts: { title, subtitle, price?, parts:[{key,pct,data}], track?: {url,site,image,price,currency}, certs?:[ids] }
 // =====================================================================
 function renderReport(mount, opts) {
   const parts = opts.parts;
@@ -302,8 +417,14 @@ function renderReport(mount, opts) {
     tb.disabled = true;
   });
   animate(mount);
-  loadAlternatives(score, r.carbonKg, parts.map((p) => p.key), mount.querySelector("#altBox"), r.garment.label, (parts.slice().sort((a, b) => b.pct - a.pct)[0] || {}).key);
-  loadRecommendations(mount.querySelector("#recBox"), { name: opts.title || label, garment: currentGarment, score: Math.round(score) });
+  const mainKey = (parts.slice().sort((a, b) => b.pct - a.pct)[0] || {}).key;
+  loadAlternatives(score, r.carbonKg, parts.map((p) => p.key), mount.querySelector("#altBox"), r.garment.label, mainKey);
+  const itemPrice = opts.price != null ? opts.price : (opts.track && opts.track.price != null ? opts.track.price : null);
+  loadRecommendations(mount.querySelector("#recBox"), {
+    name: opts.title || label, garment: currentGarment, score: Math.round(score), material: mainKey,
+    carbon: typeof r.carbonKg === "number" ? Number(r.carbonKg.toFixed(2)) : undefined,
+    price: typeof itemPrice === "number" ? itemPrice : undefined
+  });
 }
 
 function renderMaterial(data, mount, opts) {
@@ -464,17 +585,6 @@ async function takePhoto(f) {
   detectGarment(); // runs automatically, no extra click
 }
 
-// If the server model can't detect the garment, the user can pick it by hand and everything else still works.
-function manualPickHTML() {
-  return `<div class="sec">Or choose the garment yourself</div>
-    <div class="chips" id="camManual" style="margin-top:0">${Object.entries(GARMENTS).map(([k, g]) =>
-      `<span class="chip" data-g="${k}">${esc(searchName(g.label))}</span>`).join("")}</div>`;
-}
-function wireManualPick(out) {
-  const box = out.querySelector("#camManual");
-  if (box) box.addEventListener("click", (e) => { if (e.target.dataset.g) renderDetection({}, out, e.target.dataset.g); });
-}
-
 async function detectGarment() {
   if (!photo) return;
   const my = ++detectToken;
@@ -499,34 +609,31 @@ async function detectGarment() {
       const msg = res.status >= 500
         ? "The detection model on the server failed. Try again in a moment."
         : (d.error || "Detection failed.");
-      out.innerHTML = `<div class="err">${esc(msg)}</div><button class="btn ghost full" id="camRetry">↻ Try again</button>${manualPickHTML()}`;
+      out.innerHTML = `<div class="err">${esc(msg)}</div><button class="btn ghost full" id="camRetry">↻ Try again</button>`;
       $("camRetry").addEventListener("click", detectGarment);
-      wireManualPick(out);
       return;
     }
     renderDetection(d, out);
   } catch (e) {
     if (my !== detectToken) return;
-    out.innerHTML = `<div class="err">${e.name === "AbortError" ? "The server took too long to answer." : "Can't reach the server."} It may be asleep. Wait a few seconds and try again.</div><button class="btn ghost full" id="camRetry">↻ Try again</button>${manualPickHTML()}`;
+    out.innerHTML = `<div class="err">${e.name === "AbortError" ? "The server took too long to answer." : "Can't reach the server."} It may be asleep. Wait a few seconds and try again.</div><button class="btn ghost full" id="camRetry">↻ Try again</button>`;
     $("camRetry").addEventListener("click", detectGarment);
-    wireManualPick(out);
   } finally {
     clearTimeout(slow);
     clearTimeout(killer);
   }
 }
 
-function renderDetection(d, out, forced) {
-  const preds = forced ? [{ label: GARMENTS[forced].label, confidence: 1 }] : (d.predictions || []).slice().sort((a, b) => b.confidence - a.confidence);
+function renderDetection(d, out) {
+  const preds = (d.predictions || []).slice().sort((a, b) => b.confidence - a.confidence);
   if (!preds.length) {
-    out.innerHTML = `<div class="err">No garment found. Put the garment flat on a plain background, in good light, and fill the frame.</div><button class="btn ghost full" id="camRetry">↻ Try another photo</button>${manualPickHTML()}`;
+    out.innerHTML = `<div class="err">No garment found. Put the garment flat on a plain background, in good light, and fill the frame.</div><button class="btn ghost full" id="camRetry">↻ Try another photo</button>`;
     $("camRetry").addEventListener("click", () => $("camUpload").click());
-    wireManualPick(out);
     return;
   }
   const top = preds[0];
   const conf = Math.round(top.confidence * 100);
-  const garment = forced || mapGarment(top.label);
+  const garment = mapGarment(top.label);
   currentGarment = garment; // detected garment sets the weight used in the report
   const sure = top.confidence >= 0.4;
 
@@ -537,15 +644,14 @@ function renderDetection(d, out, forced) {
   out.innerHTML = `
     <div class="card">
       <h3>${esc(pretty(top.label))}</h3>
-      <div class="sub">Garment type: ${esc(GARMENTS[garment].label)} · ${forced ? "chosen by you" : "confidence " + conf + "%"}</div>
-      ${sure ? "" : `<div class="banner warn"><span>⚠</span><span>Not very sure. Try a clearer photo, or choose the garment yourself below.</span></div>`}
-      ${forced ? "" : rows}
-      ${sure && !forced ? "" : manualPickHTML()}
+      <div class="sub">Garment type: ${esc(GARMENTS[garment].label)} · confidence ${conf}%</div>
+      ${sure ? "" : `<div class="banner warn"><span>⚠</span><span>Not very sure. Try a clearer photo, or check the other guesses below.</span></div>`}
+      ${rows}
       <div class="sec">What is it made of?</div>
       <div class="sub" style="margin:-2px 0 8px">Cameras can't see the fabric. Pick it from the care label (typical fabrics for this garment first).</div>
       <div class="chips" id="camChips" style="margin-top:0">${likely.map((m) => `<span class="chip" data-m="${m}">${esc(pretty(m))}</span>`).join("")}</div>
       <select id="camMat" style="margin-top:8px"><option value="">Other fabric...</option>${ALL_FABRICS.filter((m) => !likely.includes(m)).map((m) => `<option value="${m}">${esc(pretty(m))}</option>`).join("")}</select>
-      <div class="sub" style="margin-top:8px">${forced ? "Garment chosen by you." : "Detection model: YOLO, trained on a subset of Fashionpedia."} It recognises the garment shape, not the fabric.</div>
+      <div class="sub" style="margin-top:8px">Detection model: YOLO, trained on a subset of Fashionpedia. It recognises the garment shape, not the fabric.</div>
     </div>
     <div id="camMatOut"></div>`;
 
@@ -558,7 +664,6 @@ function renderDetection(d, out, forced) {
     if (!data) { box.innerHTML = `<div class="err">No data for this fabric.</div>`; return; }
     renderMaterial(data, box, { title: `${pretty(top.label)} · ${pretty(m)}`, subtitle: "Fabric chosen by you. Check the care label to be sure." });
   };
-  wireManualPick(out);
   $("camChips").addEventListener("click", (e) => { if (e.target.dataset.m) { $("camMat").value = ""; pick(e.target.dataset.m); } });
   $("camMat").addEventListener("change", (e) => { out.querySelectorAll("#camChips .chip").forEach((c) => c.classList.remove("on")); pick(e.target.value); });
 }
@@ -750,7 +855,13 @@ async function renderBag() {
       const rec = document.createElement("div");
       sw.appendChild(rec);
       card.appendChild(sw);
-      loadRecommendations(rec, { name: item.title, garment: item.garment || "top", score: typeof item.score === "number" ? item.score : undefined });
+      loadRecommendations(rec, {
+        name: item.title, garment: item.garment || "top",
+        score: typeof item.score === "number" ? item.score : undefined,
+        material: top ? top.key : undefined,
+        carbon: typeof item.carbon === "number" ? item.carbon : undefined,
+        price: typeof item.price === "number" ? item.price : undefined
+      });
     } else if (act === "compare") {
       if (typeof item.score !== "number") return;
       addToCompare({ material_label: item.label || item.title, eco_score: item.score, carbon_footprint_kg_co2e_per_kg: item.carbon, water_usage_l_per_kg: item.water });
@@ -773,7 +884,7 @@ async function openBagItem(item) {
     if (!ok.length) { out.innerHTML = `<div class="err">Those fabrics aren't in our database yet, or the server is asleep. Try again in a moment.</div>`; return; }
     currentGarment = item.garment || "top";
     out.innerHTML = `<div id="bagRep"></div><div id="bagLabels"></div>`;
-    renderReport(out.querySelector("#bagRep"), { title: item.title, subtitle: item.price != null ? "Price: " + fmtPrice(item.price, item.currency) : "", parts: ok });
+    renderReport(out.querySelector("#bagRep"), { title: item.title, subtitle: item.price != null ? "Price: " + fmtPrice(item.price, item.currency) : "", price: item.price, parts: ok });
     const ids = item.certs || [];
     const info = { found: ECO_LABELS.filter((l) => ids.includes(l.id)), warnings: item.warnings || [] };
     out.querySelector("#bagLabels").innerHTML = labelsCardHTML(info, "Labels & claims when you added it");

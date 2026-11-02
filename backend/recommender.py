@@ -1,23 +1,20 @@
 """
-EcoCart AI - product recommendation engine (content-based filtering)
+EcoCart AI - recommendation engine v2 (content-based filtering)
 
-Idea: given a product the user is looking at (name, garment type, current eco score),
-find products in the catalog table that
-  1. look similar  (same garment words / category)         -> similarity
-  2. have a higher eco score than the current product      -> eco gain
-and rank them with  final = 0.55 * similarity + 0.45 * eco_gain.
+For a product the user is looking at, find *similar* products in `catalog_products`
+that have a *higher eco score*.
 
-The eco score of a catalog product comes from (first one that works):
-  1. its own `eco_score` column, if the table has one;
-  2. its `material_label`, looked up in the `materials` table and scored with the SAME formula as app.py
-     (carbon + water); otherwise
-  3. the fabrics found in its name / description text.
+  similarity = 0.7 * garment-type match + 0.3 * name-word cosine
+  eco gain   = (candidate score - current score) / 40, clipped to 0..1
+  price fit  = 1 if not dearer than the current product, falls off as it gets dearer
+  final      = 0.45*similarity + 0.35*gain + 0.12*price_fit + 0.08*has_image
 
-It adapts to your table: it looks at the real column names of `catalog_products`.
-Open  /recommend/debug  in the browser to see what it found.
+Eco score of a catalog row: its own `eco_score` column, else computed from the fabrics
+found in name / description / material text (weighted by % when the text has them).
 """
 import os
 import re
+import time
 
 from flask import Blueprint, jsonify, request
 
@@ -25,13 +22,12 @@ bp = Blueprint("recommender", __name__)
 
 TABLE = "catalog_products"
 
-# candidate column names (lower case). The first one that exists in your table is used.
 CANDS = {
     "name":  ["prod_name", "productdisplayname", "product_name", "name", "title"],
     "cat":   ["product_type_name", "articletype", "article_type", "category", "product_type", "subcategory", "type"],
     "group": ["product_group_name", "mastercategory", "master_category", "garment_group_name", "department_name"],
     "desc":  ["detail_desc", "description", "details"],
-    "mat":   ["material_label", "detected_material", "material", "fabric", "composition"],
+    "mat":   ["detected_material", "material", "fabric", "composition"],
     "score": ["eco_score"],
     "price": ["price"],
     "img":   ["image_url", "image", "img", "image_link"],
@@ -40,188 +36,287 @@ CANDS = {
 }
 
 GARMENT_WORDS = {
-    "tshirt": ["t-shirt", "tshirt", "tee", "t shirt"],
-    "top": ["top", "blouse", "kurti", "tunic"],
-    "shirt": ["shirt", "blouse"],
-    "dress": ["dress", "gown", "jumpsuit"],
+    "tshirt":  ["t-shirt", "tshirt", "tee", "t shirt"],
+    "top":     ["top", "blouse", "kurti", "tunic"],
+    "shirt":   ["shirt", "blouse"],
+    "dress":   ["dress", "gown", "jumpsuit"],
     "sweater": ["sweater", "jumper", "cardigan", "hoodie", "pullover"],
-    "saree": ["saree", "sari"],
-    "jeans": ["jeans", "trousers", "denim", "pants"],
-    "jacket": ["jacket", "coat", "blazer"],
+    "saree":   ["saree", "sari"],
+    "jeans":   ["jeans", "trousers", "denim", "pants"],
+    "jacket":  ["jacket", "coat", "blazer"],
 }
-FABRIC_ALIASES = {  # word in product text -> materials.material_label
+
+FABRIC_ALIASES = {
     "rayon": "viscose_rayon", "viscose": "viscose_rayon", "lyocell": "tencel",
     "jeans": "denim", "denim": "denim",
 }
-STOP = set("the and for with from this that men women mens womens ladies boys girls kids casual printed pure "
-           "regular fit buy apparel size wear new set pack".split())
+
+FABRIC_WORDS = set("""cotton polyester silk wool denim nylon linen viscose rayon acrylic hemp tencel lyocell
+organic elastane spandex lycra modal bamboo jute leather fleece""".split())
+
+COLOR_WORDS = set("""black white red blue green yellow pink purple orange brown grey gray beige navy maroon cream
+olive mustard teal peach lavender khaki multi floral paisley striped solid checked printed""".split())
+
+STOP = set("""the and for with from this that men women mens womens ladies boys girls kids casual pure regular fit
+buy apparel size wear new set pack online cart bag shop slim relaxed""".split())
 
 _cache = {"cols": None, "materials": None}
+_rc = {}                      # response cache {key: (time, payload)}
+RC_TTL = 300
 
 
-# ---------------------------------------------------------------- DB helpers
+# ------------------------------------------------------------ DB helpers
 def _conn():
-    """Same database settings as app.py (DB_HOST, DB_NAME, ...); DATABASE_URL also works if you set it."""
     import psycopg2
-    url = os.environ.get("DATABASE_URL")
-    if url:
-        return psycopg2.connect(url)
-    return psycopg2.connect(
-        host=os.getenv("DB_HOST", "localhost"),
-        dbname=os.getenv("DB_NAME", "ecocart_ai"),
-        user=os.getenv("DB_USER", "postgres"),
-        password=os.getenv("DB_PASSWORD", ""),
-        port=int(os.getenv("DB_PORT", "5432")),
-        sslmode="require",
-    )
+    url = os.environ.get("DATABASE_URL") or os.environ.get("NEON_DATABASE_URL") or os.environ.get("DB_URL")
+    if not url:
+        raise RuntimeError("DATABASE_URL environment variable not set")
+    return psycopg2.connect(url)
 
 
 def _columns(cur):
     if _cache["cols"] is None:
         cur.execute("SELECT column_name FROM information_schema.columns WHERE table_name = %s", (TABLE,))
         have = {r[0].lower(): r[0] for r in cur.fetchall()}
-        picked = {}
-        for key, names in CANDS.items():
-            picked[key] = next((have[n] for n in names if n in have), None)
+        picked = {k: next((have[n] for n in names if n in have), None) for k, names in CANDS.items()}
         picked["_all"] = sorted(have.values())
         _cache["cols"] = picked
     return _cache["cols"]
 
 
-def eco_score_formula(carbon, water):
-    """Exactly the formula used in app.py (calculate_eco_score)."""
-    if carbon is None:
+def _num(v):
+    try:
+        return float(v) if v is not None else None
+    except (TypeError, ValueError):
         return None
-    carbon = float(carbon)
-    carbon_score = max(0, min(100, 100 - (carbon / 35) * 100))
-    if water is not None:
-        water_score = max(0, min(100, 100 - (float(water) / 180000) * 100))
-        return round(carbon_score * 0.6 + water_score * 0.4)
-    return round(carbon_score)
 
 
 def _materials(cur):
-    """{material_label: eco_score} computed from the materials table."""
+    """{label: {"score","carbon","water"}} from the materials table. Never raises."""
     if _cache["materials"] is None:
-        cur.execute("SELECT * FROM materials")
-        names = [d[0].lower() for d in cur.description]
         out = {}
-        for row in cur.fetchall():
-            d = dict(zip(names, row))
-            label = d.get("material_label")
-            if not label:
-                continue
-            sc = eco_score_formula(d.get("carbon_footprint_kg_co2e_per_kg"), d.get("water_usage_l_per_kg"))
-            if sc is None and d.get("eco_score") is not None:
-                sc = float(d["eco_score"])
-            if sc is not None:
-                out[str(label).lower()] = float(sc)
+        try:
+            cur.execute("SELECT * FROM materials")
+            names = [d[0].lower() for d in cur.description]
+            lab = next((n for n in ["material_label", "material", "name", "label"] if n in names), names[0])
+            carbon_c = next((n for n in names if "carbon" in n), None)
+            water_c = next((n for n in names if "water" in n), None)
+            if "eco_score" in names:
+                for row in cur.fetchall():
+                    d = dict(zip(names, row))
+                    s = _num(d.get("eco_score"))
+                    if s is None:
+                        continue
+                    out[str(d[lab]).lower()] = {
+                        "score": s,
+                        "carbon": _num(d.get(carbon_c)) if carbon_c else None,
+                        "water": _num(d.get(water_c)) if water_c else None,
+                    }
+        except Exception:
+            try:
+                cur.connection.rollback()
+            except Exception:
+                pass
         _cache["materials"] = out
     return _cache["materials"]
 
 
-# ---------------------------------------------------------------- pure logic (easy to test)
-def tokens(text):
+# ------------------------------------------------------------ pure logic
+def tokens(text, drop_fabrics=True, drop_colors=True):
     words = re.findall(r"[a-z]+", str(text or "").lower())
-    return {w for w in words if len(w) >= 3 and w not in STOP}
+    out = {w for w in words if len(w) >= 3 and w not in STOP}
+    if drop_fabrics:
+        out -= FABRIC_WORDS
+    if drop_colors:
+        out -= COLOR_WORDS
+    return out
 
 
-def fabric_score(text, materials):
-    """Average eco score of the fabrics mentioned in text (longest names matched first)."""
+def infer_garments(name):
+    """Garment keys whose words appear in the product name."""
+    t = " " + re.sub(r"[^a-z]+", " ", str(name or "").lower().replace("-", " ")) + " "
+    keys = []
+    for key, words in GARMENT_WORDS.items():
+        if any(" " + re.sub(r"[^a-z]+", " ", w) .strip() + " " in t for w in words):
+            keys.append(key)
+    return keys
+
+
+def fabric_info(text, materials):
+    """Fabrics found in text -> {"labels", "score", "carbon"} (weighted by % when given)."""
+    if not materials:
+        return None
     t = " " + str(text or "").lower().replace("-", " ") + " "
-    names = {}
-    for label in materials:
-        names[label.replace("_", " ")] = label
+    names = {label.replace("_", " "): label for label in materials}
     for alias, label in FABRIC_ALIASES.items():
         if label in materials:
             names[alias] = label
-    found, used = [], set()
+
+    hits = {}
     for phrase in sorted(names, key=len, reverse=True):
-        if re.search(r"\b" + re.escape(phrase) + r"\b", t):
-            if names[phrase] not in used:   # count each fabric once (denim + jeans = one)
-                used.add(names[phrase])
-                found.append(materials[names[phrase]])
-            t = re.sub(r"\b" + re.escape(phrase) + r"\b", " ", t)
-    return round(sum(found) / len(found), 1) if found else None
+        ms = list(re.finditer(r"\b" + re.escape(phrase) + r"\b", t))
+        if not ms:
+            continue
+        label = names[phrase]
+        if label not in hits:
+            m = ms[0]
+            before = t[max(0, m.start() - 8):m.start()]
+            after = t[m.end():m.end() + 8]
+            a = re.search(r"(\d{1,3})\s*%\s*$", before)
+            b = re.match(r"\s*(\d{1,3})\s*%", after)
+            hits[label] = int(a.group(1)) if a else (int(b.group(1)) if b else None)
+        for m in ms:                         # blank it out (same length) so shorter names don't re-match
+            t = t[:m.start()] + " " * (m.end() - m.start()) + t[m.end():]
+    if not hits:
+        return None
+
+    labels = list(hits)
+    pcts = [hits[l] for l in labels]
+    if all(p is not None for p in pcts) and sum(pcts) > 0:
+        w = [p / sum(pcts) for p in pcts]
+    else:
+        w = [1 / len(labels)] * len(labels)
+
+    score = sum(materials[l]["score"] * wi for l, wi in zip(labels, w))
+    cs = [(materials[l]["carbon"], wi) for l, wi in zip(labels, w) if materials[l]["carbon"] is not None]
+    carbon = (sum(c * wi for c, wi in cs) / sum(wi for _, wi in cs)) if cs else None
+    return {"labels": labels, "score": round(score, 1), "carbon": round(carbon, 2) if carbon is not None else None}
 
 
-def similarity(q_tokens, p_tokens):
-    if not q_tokens or not p_tokens:
+def cosine(a, b):
+    if not a or not b:
         return 0.0
-    inter = len(q_tokens & p_tokens)
-    return inter / ((len(q_tokens) * len(p_tokens)) ** 0.5)  # cosine on word sets
+    return len(a & b) / ((len(a) * len(b)) ** 0.5)
 
 
-def rank(rows, cols, materials, query, current_score=None, limit=5, max_price=None, min_sim=0.1):
-    """rows: list of dicts from the catalog. Returns the best recommendations."""
-    q_tokens = tokens(query["name"])
-    for g in query.get("garment_words", []):
-        q_tokens |= tokens(g)
-    out, seen = [], set()
+def rank(rows, cols, materials, q, limit=6):
+    """q: dict(name_tokens, garment_tokens, score, carbon, price, max_price, material).
+    Returns (recommendations, diagnostics)."""
+    diag = {"scanned": len(rows), "with_score": 0, "higher_score": 0, "same_type": 0, "returned": 0}
+    gt = q["garment_tokens"]
+    cur_score, cur_carbon, cur_price = q["score"], q["carbon"], q["price"]
+    exact, loose, seen = [], [], set()
+
     for r in rows:
         name = str(r.get(cols["name"]) or "").strip() if cols["name"] else ""
         if not name or name.lower() in seen:
             continue
+
         text = " ".join(str(r.get(cols[k]) or "") for k in ("name", "cat", "desc", "mat") if cols[k])
-        score = None
-        if cols["score"] and r.get(cols["score"]) is not None:
-            score = float(r[cols["score"]])
-        if score is None and cols["mat"] and r.get(cols["mat"]):
-            score = materials.get(str(r[cols["mat"]]).strip().lower())
-        if score is None:
-            score = fabric_score(text, materials)
+        info = fabric_info(text, materials)
+
+        score = _num(r.get(cols["score"])) if cols["score"] else None
+        if score is None and info:
+            score = info["score"]
         if score is None:
             continue
-        if current_score is not None and score <= current_score:
+        diag["with_score"] += 1
+
+        if cur_score is not None and score <= cur_score:
             continue
-        price = r.get(cols["price"]) if cols["price"] else None
-        try:
-            price = float(price) if price is not None else None
-        except (TypeError, ValueError):
-            price = None
-        if max_price is not None and price is not None and price > max_price:
+        diag["higher_score"] += 1
+
+        price = _num(r.get(cols["price"])) if cols["price"] else None
+        if q["max_price"] is not None and price is not None and price > q["max_price"]:
             continue
-        p_tokens = (tokens(name) | tokens(r.get(cols["cat"]) if cols["cat"] else "")
-                    | tokens(str(r.get(cols["mat"]) or "").replace("_", " ") if cols["mat"] else ""))
-        sim = similarity(q_tokens, p_tokens)
-        if q_tokens and sim < min_sim:  # not similar enough: a nightdress should not suggest jeans
+
+        cat_text = " ".join(str(r.get(cols[k]) or "") for k in ("name", "cat", "group") if cols[k])
+        p_tokens = tokens(cat_text)
+        cat_match = bool(gt & p_tokens) if gt else True
+        word_sim = cosine(q["name_tokens"], tokens(name))
+        if not gt and word_sim <= 0:
             continue
-        base = current_score if current_score is not None else 0
+        sim = 0.7 * (1.0 if cat_match else 0.0) + 0.3 * min(1.0, word_sim * 2)
+        if not cat_match and word_sim <= 0:
+            continue
+        if cat_match:
+            diag["same_type"] += 1
+
+        base = cur_score if cur_score is not None else 0
         gain = max(0.0, min(1.0, (score - base) / 40.0))
-        final = 0.55 * sim + 0.45 * gain
-        seen.add(name.lower())
-        out.append({
-            "name": name,
-            "score": round(score),
-            "gain": round(score - base) if current_score is not None else None,
-            "similarity": round(sim, 2),
-            "match": round(final, 3),
-            "price": price,
-            "image": r.get(cols["img"]) if cols["img"] else None,
+
+        if cur_price and price:
+            ratio = price / cur_price
+            price_fit = 1.0 if ratio <= 1.0 else max(0.0, 1.0 - (ratio - 1.0))
+        else:
+            price_fit = 0.5
+
+        img = r.get(cols["img"]) if cols["img"] else None
+        final = 0.45 * sim + 0.35 * gain + 0.12 * price_fit + (0.08 if img else 0.0)
+
+        carbon = info["carbon"] if info else None
+        saving = None
+        if cur_carbon and carbon is not None and cur_carbon > 0:
+            saving = round((cur_carbon - carbon) / cur_carbon * 100)
+
+        reasons = []
+        if cur_score is not None:
+            reasons.append(f"+{round(score - cur_score)} eco points")
+        if saving is not None and saving > 0:
+            reasons.append(f"about {saving}% less carbon")
+        if cur_price and price and price < cur_price:
+            reasons.append(f"₹{round(cur_price - price)} cheaper")
+        if info:
+            reasons.append("made of " + ", ".join(l.replace("_", " ") for l in info["labels"]))
+        if cat_match and gt:
+            reasons.append("same garment type")
+
+        item = {
+            "name": name, "score": round(score),
+            "gain": round(score - base) if cur_score is not None else None,
+            "similarity": round(sim, 2), "match": round(final, 3),
+            "price": price, "image": img,
             "url": r.get(cols["url"]) if cols["url"] else None,
             "category": r.get(cols["cat"]) if cols["cat"] else None,
-        })
-    out.sort(key=lambda x: x["match"], reverse=True)
-    return out[:limit]
+            "fabrics": info["labels"] if info else [],
+            "carbon": carbon, "carbon_saving_pct": saving,
+            "same_type": bool(cat_match and gt), "reasons": reasons[:4],
+        }
+        seen.add(name.lower())
+        (exact if (cat_match or not gt) else loose).append(item)
+
+    exact.sort(key=lambda x: x["match"], reverse=True)
+    loose.sort(key=lambda x: x["match"], reverse=True)
+    out = exact[:limit]
+    if len(out) < 3:                       # not enough same-type matches: fill with close ones
+        out += loose[: limit - len(out)]
+    diag["returned"] = len(out)
+    return out, diag
 
 
-# ---------------------------------------------------------------- routes
+# ------------------------------------------------------------ routes
 @bp.route("/recommend", methods=["GET"])
 def recommend():
-    name = request.args.get("name", "").strip()
-    garment = request.args.get("garment", "").strip().lower()
-    material = request.args.get("material", "").strip().lower()
+    a = request.args
+    name = a.get("name", "").strip()
+    garment = a.get("garment", "").strip().lower()
     try:
-        current = float(request.args["score"]) if request.args.get("score") else None
-        limit = max(1, min(10, int(request.args.get("limit", 5))))
-        max_price = float(request.args["max_price"]) if request.args.get("max_price") else None
+        current = float(a["score"]) if a.get("score") else None
+        carbon = float(a["carbon"]) if a.get("carbon") else None
+        price = float(a["price"]) if a.get("price") else None
+        max_price = float(a["max_price"]) if a.get("max_price") else None
+        limit = max(1, min(12, int(a.get("limit", 6))))
     except ValueError:
-        return jsonify({"error": "score, limit and max_price must be numbers"}), 400
+        return jsonify({"error": "score, carbon, price, max_price and limit must be numbers"}), 400
 
-    words = GARMENT_WORDS.get(garment, [])
-    q_text = (name + " " + " ".join(words[:1])).strip()
-    if not tokens(q_text):
+    gkeys = [garment] if garment in GARMENT_WORDS else []
+    gkeys += [k for k in infer_garments(name) if k not in gkeys]
+    gwords = []
+    for k in gkeys:
+        for w in GARMENT_WORDS[k]:
+            if w not in gwords:
+                gwords.append(w)
+    gtokens = set()
+    for w in gwords:
+        gtokens |= tokens(w)
+    name_tokens = tokens(name) - gtokens
+    if not gtokens and not name_tokens:
         return jsonify({"error": "give a product name or a garment type"}), 400
+
+    key = (name.lower(), tuple(gkeys), current, carbon, price, max_price, limit)
+    hit = _rc.get(key)
+    if hit and time.time() - hit[0] < RC_TTL:
+        return jsonify(hit[1])
 
     conn = None
     try:
@@ -232,23 +327,22 @@ def recommend():
             return jsonify({"error": "no name column found in " + TABLE, "columns": cols["_all"]}), 500
         materials = _materials(cur)
 
-        # pre-filter in SQL: product text must contain one of the search words
-        search = sorted(tokens(name), key=len, reverse=True)[:4] + [w for w in words]
-        search = [s for s in dict.fromkeys(search) if s][:8]
-        text_cols = [cols[k] for k in ("name", "cat", "mat") if cols[k]]
+        search = gwords[:] if gwords else sorted(name_tokens, key=len, reverse=True)[:6]
+        text_cols = [cols[k] for k in ("name", "cat", "group") if cols[k]]
         where, params = [], []
         for s in search:
             for c in text_cols:
                 where.append(f'"{c}" ILIKE %s')
                 params.append(f"%{s}%")
-        sql = f'SELECT * FROM "{TABLE}"' + (" WHERE " + " OR ".join(where) if where else "") + " LIMIT 4000"
+        sql = f'SELECT * FROM "{TABLE}"' + (" WHERE " + " OR ".join(where) if where else "") + " LIMIT 6000"
         cur.execute(sql, params)
         names = [d[0] for d in cur.description]
         rows = [dict(zip(names, r)) for r in cur.fetchall()]
-        if len(rows) < 30:  # small catalog or unusual words: look at the whole table instead
-            cur.execute(f'SELECT * FROM "{TABLE}" LIMIT 4000')
+        if not rows:
+            cur.execute(f'SELECT * FROM "{TABLE}" LIMIT 3000')
             names = [d[0] for d in cur.description]
             rows = [dict(zip(names, r)) for r in cur.fetchall()]
+
         total = None
         try:
             cur.execute(f'SELECT COUNT(*) FROM "{TABLE}"')
@@ -256,19 +350,35 @@ def recommend():
         except Exception:
             pass
 
-        query = {"name": q_text, "garment_words": words}
-        recs = rank(rows, cols, materials, query, current_score=current, limit=limit, max_price=max_price)
+        recs, diag = rank(rows, cols, materials, {
+            "name_tokens": name_tokens, "garment_tokens": gtokens,
+            "score": current, "carbon": carbon, "price": price, "max_price": max_price,
+        }, limit=limit)
+
         note = None
-        if not recs:  # nothing similar enough: show the greenest products, less similar
-            recs = rank(rows, cols, materials, query, current_score=current, limit=limit, max_price=max_price, min_sim=0.0)
-            note = "No close match found, showing the greenest products in the catalog." if recs else \
-                   "No product with a higher eco score was found in the catalog."
-        return jsonify({
-            "query": q_text, "current_score": current, "scanned": len(rows), "catalog_size": total,
+        if not recs:
+            if diag["scanned"] == 0:
+                note = "The catalog table is empty."
+            elif diag["with_score"] == 0:
+                note = ("Catalog products have no eco score and no known fabric in their text, so none can be "
+                        "scored. Add an eco_score column or a material column to catalog_products.")
+            elif diag["higher_score"] == 0:
+                note = "This is already greener than everything similar in our catalog. Great choice!"
+            else:
+                note = "No similar product with a higher eco score was found in our catalog."
+
+        payload = {
+            "garment": gkeys[0] if gkeys else None, "current_score": current,
+            "catalog_size": total, "diagnostics": diag,
             "recommendations": recs, "note": note,
-        })
+        }
+        if recs:
+            if len(_rc) > 200:
+                _rc.clear()
+            _rc[key] = (time.time(), payload)
+        return jsonify(payload)
     except Exception as e:
-        return jsonify({"error": "recommendation failed", "detail": str(e)[:200]}), 500
+        return jsonify({"error": "recommendation failed", "detail": str(e)[:300]}), 500
     finally:
         if conn:
             conn.close()
@@ -276,12 +386,13 @@ def recommend():
 
 @bp.route("/recommend/debug", methods=["GET"])
 def debug():
-    """Open this in the browser to see which columns were detected."""
     conn = None
     try:
         conn = _conn()
         cur = conn.cursor()
         _cache["cols"] = None
+        _cache["materials"] = None
+        _rc.clear()
         cols = _columns(cur)
         cur.execute(f'SELECT COUNT(*) FROM "{TABLE}"')
         total = cur.fetchone()[0]
@@ -289,8 +400,13 @@ def debug():
         cur.execute(f'SELECT * FROM "{TABLE}" LIMIT 1')
         names = [d[0] for d in cur.description]
         sample = dict(zip(names, cur.fetchone() or []))
-        return jsonify({"table": TABLE, "rows": total, "detected_columns": {k: v for k, v in cols.items() if k != "_all"},
-                        "all_columns": cols["_all"], "materials_loaded": len(mats), "sample_row": {k: str(v)[:80] for k, v in sample.items()}})
+        return jsonify({
+            "table": TABLE, "rows": total,
+            "detected_columns": {k: v for k, v in cols.items() if k != "_all"},
+            "all_columns": cols["_all"],
+            "materials_loaded": len(mats), "materials": mats,
+            "sample_row": {k: str(v)[:80] for k, v in sample.items()},
+        })
     except Exception as e:
         return jsonify({"error": str(e)[:300]}), 500
     finally:
