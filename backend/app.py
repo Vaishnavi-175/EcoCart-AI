@@ -11,7 +11,6 @@ import traceback
 
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})
-
 # product recommendation engine (see recommender.py): /recommend and /recommend/debug
 from recommender import bp as recommender_bp
 app.register_blueprint(recommender_bp)
