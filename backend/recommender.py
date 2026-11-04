@@ -13,7 +13,9 @@ The eco score of a catalog product comes from (first one that works):
      (carbon + water); otherwise
   3. the fabrics found in its name / description text.
 
-It adapts to your table: it looks at the real column names of `catalog_products`.
+Which table is searched: `product_dataset` (the big imported dataset, see scripts/import_products.py)
+when it exists and has rows, otherwise the small `catalog_products` table.
+It adapts to the table: it looks at the real column names.
 Open  /recommend/debug  in the browser to see what it found.
 """
 import os
@@ -23,7 +25,8 @@ from flask import Blueprint, jsonify, request
 
 bp = Blueprint("recommender", __name__)
 
-TABLE = "catalog_products"
+BIG_TABLE = "product_dataset"      # filled by scripts/import_products.py
+SMALL_TABLE = "catalog_products"   # the small demo catalog
 
 # candidate column names (lower case). The first one that exists in your table is used.
 CANDS = {
@@ -42,12 +45,12 @@ CANDS = {
 # garment type sent by the extension -> words that mean the same kind of garment
 GARMENT_WORDS = {
     "tshirt": ["t-shirt", "tee"],
-    "top": ["top", "blouse", "kurti", "tunic"],
+    "top": ["top", "blouse", "kurti", "kurta", "tunic"],
     "shirt": ["shirt", "blouse"],
-    "dress": ["dress", "gown", "jumpsuit"],
+    "dress": ["dress", "gown", "jumpsuit", "skirt"],
     "sweater": ["sweater", "jumper", "cardigan", "hoodie", "pullover"],
     "saree": ["saree", "sari"],
-    "jeans": ["jeans", "trousers", "pants"],
+    "jeans": ["jeans", "trousers", "pants", "shorts", "leggings"],
     "jacket": ["jacket", "coat", "blazer"],
 }
 FABRIC_ALIASES = {  # word in product text -> materials.material_label
@@ -55,11 +58,11 @@ FABRIC_ALIASES = {  # word in product text -> materials.material_label
     "jeans": "denim", "denim": "denim",
 }
 # different words, same garment (applied after removing a plural "s")
-SYNONYMS = {"tee": "tshirt", "trouser": "pant", "jean": "pant", "jumper": "sweater", "sari": "saree"}
+SYNONYMS = {"tee": "tshirt", "trouser": "pant", "jean": "pant", "jumper": "sweater", "sari": "saree", "kurti": "kurta"}
 STOP = set("the and for with from this that men women mens womens ladies boys girls kids casual printed pure "
            "regular fit buy apparel size wear new set pack".split())
 
-_cache = {"cols": None, "materials": None}
+_cache = {"cols": {}, "materials": None}
 
 
 # ---------------------------------------------------------------- DB helpers
@@ -79,16 +82,29 @@ def _conn():
     )
 
 
-def _columns(cur):
-    if _cache["cols"] is None:
-        cur.execute("SELECT column_name FROM information_schema.columns WHERE table_name = %s", (TABLE,))
+def _columns(cur, table):
+    if table not in _cache["cols"]:
+        cur.execute("SELECT column_name FROM information_schema.columns WHERE table_name = %s", (table,))
         have = {r[0].lower(): r[0] for r in cur.fetchall()}
         picked = {}
         for key, names in CANDS.items():
             picked[key] = next((have[n] for n in names if n in have), None)
         picked["_all"] = sorted(have.values())
-        _cache["cols"] = picked
-    return _cache["cols"]
+        _cache["cols"][table] = picked
+    return _cache["cols"][table]
+
+
+def _table(cur):
+    """The big imported dataset if it exists and is not empty, otherwise the small catalog."""
+    try:
+        cur.execute("SELECT to_regclass(%s)", ("public." + BIG_TABLE,))
+        if cur.fetchone()[0]:
+            cur.execute(f'SELECT 1 FROM "{BIG_TABLE}" LIMIT 1')
+            if cur.fetchone():
+                return BIG_TABLE
+    except Exception:
+        cur.connection.rollback()
+    return SMALL_TABLE
 
 
 def eco_score_formula(carbon, water):
@@ -130,7 +146,9 @@ def tokens(text):
     t = re.sub(r"\bt[\s-]*shirts?\b", " tshirt ", t)
     out = set()
     for w in re.findall(r"[a-z]+", t):
-        if len(w) > 3 and w.endswith("s") and not w.endswith("ss"):
+        if w.endswith("sses"):          # dresses -> dress
+            w = w[:-2]
+        elif len(w) > 3 and w.endswith("s") and not w.endswith("ss"):
             w = w[:-1]
         w = SYNONYMS.get(w, w)
         if len(w) >= 3 and w not in STOP:
@@ -227,20 +245,43 @@ def rank(rows, cols, materials, query, current_score=None, limit=5, max_price=No
     return out[:limit]
 
 
-def recommend_from_rows(rows, cols, materials, name, garment, current, limit, max_price):
-    """3 passes: same garment -> similar words -> greenest products. Returns (recs, note)."""
+def recommend_staged(fetch, cols, materials, name, garment, current, limit, max_price):
+    """3 passes: same garment -> similar words -> greenest products. Returns (recs, note).
+    fetch(level) returns the rows for that pass (1 = same garment only, 2 = similar words, 3 = anything greener)."""
     query = {"name": name, "garment_tokens": garment_tokens(garment)}
     kw = dict(current_score=current, limit=limit, max_price=max_price)
-    recs = rank(rows, cols, materials, query, same_garment=True, **kw)
+    recs = rank(fetch(1), cols, materials, query, same_garment=True, **kw)
     if recs:
         return recs, None
-    recs = rank(rows, cols, materials, query, same_garment=False, **kw)
+    recs = rank(fetch(2), cols, materials, query, same_garment=False, **kw)
     if recs:
         return recs, "No product of the same type with a better score. Showing the closest greener products."
-    recs = rank(rows, cols, materials, query, same_garment=False, min_sim=0.0, **kw)
+    recs = rank(fetch(3), cols, materials, query, same_garment=False, min_sim=0.0, **kw)
     if recs:
         return recs, "No close match found, showing the greenest products in the catalog."
     return [], "No product with a higher eco score was found in the catalog."
+
+
+def recommend_from_rows(rows, cols, materials, name, garment, current, limit, max_price):
+    return recommend_staged(lambda level: rows, cols, materials, name, garment, current, limit, max_price)
+
+
+def build_sql(table, cols, terms, better_labels, limit=4000):
+    """SELECT with an optional text pre-filter (terms) and an 'eco score must be higher' filter on material_label."""
+    text_cols = [cols[k] for k in ("name", "cat", "mat") if cols[k]]
+    where, params = [], []
+    if terms and text_cols:
+        parts = []
+        for t in terms:
+            for c in text_cols:
+                parts.append(f'"{c}" ILIKE %s')
+                params.append(f"%{t}%")
+        where.append("(" + " OR ".join(parts) + ")")
+    if better_labels is not None and cols["mat"] and not cols["score"]:
+        where.append(f'LOWER("{cols["mat"]}") = ANY(%s)')
+        params.append(list(better_labels))
+    sql = f'SELECT * FROM "{table}"' + (" WHERE " + " AND ".join(where) if where else "") + f" LIMIT {int(limit)}"
+    return sql, params
 
 
 # ---------------------------------------------------------------- routes
@@ -264,39 +305,41 @@ def recommend():
     try:
         conn = _conn()
         cur = conn.cursor()
-        cols = _columns(cur)
+        table = _table(cur)
+        cols = _columns(cur, table)
         if not cols["name"]:
-            return jsonify({"error": "no name column found in " + TABLE, "columns": cols["_all"]}), 500
+            return jsonify({"error": "no name column found in " + table, "columns": cols["_all"]}), 500
         materials = _materials(cur)
+        better = [l for l, sc in materials.items() if current is None or sc > current] if materials else None
 
-        # pre-filter in SQL: product text must contain one of the search words
-        search = sorted(tokens(name), key=len, reverse=True)[:4] + [w for w in words]
-        search = [s for s in dict.fromkeys(search) if s][:8]
-        text_cols = [cols[k] for k in ("name", "cat", "mat") if cols[k]]
-        where, params = [], []
-        for s in search:
-            for c in text_cols:
-                where.append(f'"{c}" ILIKE %s')
-                params.append(f"%{s}%")
-        sql = f'SELECT * FROM "{TABLE}"' + (" WHERE " + " OR ".join(where) if where else "") + " LIMIT 4000"
-        cur.execute(sql, params)
-        names = [d[0] for d in cur.description]
-        rows = [dict(zip(names, r)) for r in cur.fetchall()]
-        if len(rows) < 30:  # small catalog or unusual words: look at the whole table instead
-            cur.execute(f'SELECT * FROM "{TABLE}" LIMIT 4000')
+        garment_terms = list(dict.fromkeys(words + [w.replace("-", "").replace(" ", "") for w in words]))
+        name_terms = sorted(tokens(name), key=len, reverse=True)[:4]
+        scanned = {"n": 0}
+
+        def fetch(level):
+            if level == 1:
+                terms = garment_terms or name_terms          # same kind of garment only
+            elif level == 2:
+                terms = list(dict.fromkeys(name_terms + garment_terms))[:8]
+            else:
+                terms = []                                   # anything with a better score
+            sql, params = build_sql(table, cols, terms, better)
+            cur.execute(sql, params)
             names = [d[0] for d in cur.description]
             rows = [dict(zip(names, r)) for r in cur.fetchall()]
+            scanned["n"] = max(scanned["n"], len(rows))
+            return rows
+
+        recs, note = recommend_staged(fetch, cols, materials, q_text, garment, current, limit, max_price)
         total = None
         try:
-            cur.execute(f'SELECT COUNT(*) FROM "{TABLE}"')
+            cur.execute(f'SELECT COUNT(*) FROM "{table}"')
             total = cur.fetchone()[0]
         except Exception:
             pass
-
-        recs, note = recommend_from_rows(rows, cols, materials, q_text, garment, current, limit, max_price)
         return jsonify({
-            "query": q_text, "current_score": current, "scanned": len(rows), "catalog_size": total,
-            "recommendations": recs, "note": note,
+            "query": q_text, "current_score": current, "table": table, "scanned": scanned["n"],
+            "catalog_size": total, "recommendations": recs, "note": note,
         })
     except Exception as e:
         return jsonify({"error": "recommendation failed", "detail": str(e)[:200]}), 500
@@ -307,20 +350,21 @@ def recommend():
 
 @bp.route("/recommend/debug", methods=["GET"])
 def debug():
-    """Open this in the browser to see which columns were detected."""
+    """Open this in the browser to see which table and columns were used."""
     conn = None
     try:
         conn = _conn()
         cur = conn.cursor()
-        _cache["cols"] = None
-        cols = _columns(cur)
-        cur.execute(f'SELECT COUNT(*) FROM "{TABLE}"')
+        _cache["cols"] = {}
+        table = _table(cur)
+        cols = _columns(cur, table)
+        cur.execute(f'SELECT COUNT(*) FROM "{table}"')
         total = cur.fetchone()[0]
         mats = _materials(cur)
-        cur.execute(f'SELECT * FROM "{TABLE}" LIMIT 1')
+        cur.execute(f'SELECT * FROM "{table}" LIMIT 1')
         names = [d[0] for d in cur.description]
         sample = dict(zip(names, cur.fetchone() or []))
-        return jsonify({"table": TABLE, "rows": total, "detected_columns": {k: v for k, v in cols.items() if k != "_all"},
+        return jsonify({"table": table, "rows": total, "detected_columns": {k: v for k, v in cols.items() if k != "_all"},
                         "all_columns": cols["_all"], "materials_loaded": len(mats), "sample_row": {k: str(v)[:80] for k, v in sample.items()}})
     except Exception as e:
         return jsonify({"error": str(e)[:300]}), 500
