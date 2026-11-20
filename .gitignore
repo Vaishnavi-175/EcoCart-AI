@@ -4,3 +4,8 @@ ml/TextileNet-main.zip
 __pycache__/
 *.pyc
 venv/
+*.zip
+data/
+*.csv
+__pycache__/
+.env

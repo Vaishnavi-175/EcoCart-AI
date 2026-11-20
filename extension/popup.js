@@ -10,9 +10,20 @@ function esc(s) {
   return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 const pretty = (s) => String(s).replace(/_/g, " ");
-const colorFor = (n) => (n >= 70 ? "#1a9b66" : n >= 45 ? "#e29a2e" : "#d65353");
+// Eco score tiers: one set of colours used in the Bag, Compare and Impact tabs
+const TIERS = {
+  good: { key: "good", label: "Good choice",    color: "#1a9b66" },
+  mid:  { key: "mid",  label: "Average impact", color: "#e29a2e" },
+  bad:  { key: "bad",  label: "High impact",    color: "#d65353" },
+  none: { key: "none", label: "No score yet",   color: "#9aa9a0" }
+};
+function tierOf(score) {
+  if (typeof score !== "number" || isNaN(score)) return TIERS.none;
+  return score >= 70 ? TIERS.good : score >= 45 ? TIERS.mid : TIERS.bad;
+}
+const colorFor = (n) => tierOf(n).color;
 const skeleton = () => `<div class="skel"><i style="width:45%"></i><i style="width:80%"></i><i style="width:60%"></i><i style="width:90%"></i></div>`;
-function tierText(score) { return score >= 70 ? "Good choice" : score >= 45 ? "Average impact" : "High impact"; }
+function tierText(score) { return tierOf(score).label; }
 const fmt = (n, d = 1) => (n == null || isNaN(n) ? "N/A" : Number(n).toFixed(d).replace(/\.0+$/, ""));
 
 let currentGarment = "top"; // remembered garment type
@@ -128,12 +139,9 @@ async function loadAlternatives(score, carbon, exclude, box, garmentLabel, mainK
 
 // ---------- Recommendation engine: similar products with a higher eco score (from our catalog) ----------
 async function loadRecommendations(box, q) {
-  const TITLE = `<div class="sec">🤖 Recommended products (from our catalog)</div>`;
-  box.innerHTML = `${TITLE}${skeleton()}<div class="sub" id="recWait">Searching our catalog…</div>`;
-  const slow = setTimeout(() => {
-    const w = box.querySelector("#recWait");
-    if (w) w.textContent = "The server is waking up. This can take up to a minute…";
-  }, 6000);
+  box.innerHTML = `<div class="sec">🤖 Recommended products (from our catalog)</div>${skeleton()}
+    <div class="sub" id="recWait">Searching our catalog…</div>`;
+  const slow = setTimeout(() => { const w = box.querySelector("#recWait"); if (w) w.textContent = "The server is waking up. This can take up to a minute…"; }, 6000);
   const ctl = new AbortController();
   const killer = setTimeout(() => ctl.abort(), 90000);
   try {
@@ -141,22 +149,19 @@ async function loadRecommendations(box, q) {
     if (typeof q.score === "number") qs.set("score", String(q.score));
     const res = await fetch(`${API}/recommend?${qs}`, { signal: ctl.signal });
     const d = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(d.detail || d.error || "failed (" + res.status + ")");
-
+    if (res.status === 404) throw new Error("the recommendation service is not on the server yet (deploy backend/recommender.py)");
+    if (!res.ok) throw new Error((d.error || "server error") + (d.detail ? ": " + d.detail : ""));
     const recs = d.recommendations || [];
     if (!recs.length) {
-      const g = d.diagnostics
-        ? `<div class="sub">Checked ${esc(d.diagnostics.scanned)} products, ${esc(d.diagnostics.with_score)} had an eco score, ${esc(d.diagnostics.higher_score)} were greener.</div>`
-        : "";
-      box.innerHTML = `${TITLE}<div class="tip">${esc(d.note || "No similar product with a higher eco score was found in our catalog.")}</div>${g}`;
+      box.innerHTML = `<div class="sec">🤖 Recommended products (from our catalog)</div>
+        <div class="tip">${esc(d.note || "No similar product with a higher eco score was found in our catalog.")}</div>`;
       return;
     }
-
-    box.innerHTML = TITLE + recs.map((r) => {
-      const img = r.image && /^https?:/i.test(r.image)
-        ? `<img src="${esc(r.image)}" alt="" style="width:46px;height:46px;object-fit:cover;border-radius:10px;flex-shrink:0">` : "";
-      const link = r.url && /^https?:/i.test(r.url)
-        ? `<a class="chip" style="text-decoration:none" target="_blank" rel="noopener" href="${esc(r.url)}">View ↗</a>` : "";
+    box.innerHTML = `<div class="sec">🤖 Recommended products (from our catalog)</div>` + (d.note ? `<div class="sub" style="margin-bottom:6px">${esc(d.note)}</div>` : "") + recs.map((r) => {
+      const img = r.image ? `<img src="${esc(r.image)}" alt="" style="width:46px;height:46px;object-fit:cover;border-radius:10px;flex-shrink:0">` : "";
+      const link = r.url
+        ? `<a class="chip" style="text-decoration:none" target="_blank" rel="noopener" href="${esc(r.url)}">View ↗</a>`
+        : "";
       return `<div class="alt" style="display:block">
         <div style="display:flex;align-items:center;gap:10px">${img}
           <div class="info"><b style="text-transform:none">${esc(r.name)}</b>
@@ -166,19 +171,18 @@ async function loadRecommendations(box, q) {
         <div class="chips" style="margin-top:6px">${link}${SHOPS.slice(0, 2).map(([n, f]) =>
           `<a class="chip" style="text-decoration:none" target="_blank" rel="noopener" href="${esc(f(r.name))}">${n} ↗</a>`).join("")}</div>
       </div>`;
-    }).join("") +
-      `<div class="sub">Found by comparing garment type (similarity) and fabric eco scores. ${d.catalog_size ? "Catalog size: " + esc(Number(d.catalog_size).toLocaleString()) + " products." : ""}</div>`;
+    }).join("") + `<div class="sub">Found by comparing product names and categories (similarity) and fabric eco scores. ${d.catalog_size ? "Catalog size: " + esc(Number(d.catalog_size).toLocaleString()) + " products." : ""}</div>`;
   } catch (e) {
-    box.innerHTML = `${TITLE}
-      <div class="tip">Couldn't load recommendations (${esc(e.name === "AbortError" ? "server too slow" : e.message)}).
+    box.innerHTML = `<div class="sec">🤖 Recommended products (from our catalog)</div>
+      <div class="tip">Couldn't load recommendations right now (${esc(e.name === "AbortError" ? "server too slow" : e.message)}).
       <button class="btn ghost small" id="recRetry" style="margin-top:6px;padding:6px 12px">↻ Try again</button></div>`;
     const rb = box.querySelector("#recRetry");
     if (rb) rb.addEventListener("click", () => loadRecommendations(box, q));
   } finally {
-    clearTimeout(slow);
-    clearTimeout(killer);
+    clearTimeout(slow); clearTimeout(killer);
   }
 }
+
 // =====================================================================
 // LABELS & CLAIMS CARD
 // =====================================================================
@@ -428,7 +432,11 @@ const ALL_FABRICS = ["cotton", "polyester", "silk", "wool", "denim", "nylon", "l
 let photo = null;
 let detectToken = 0;
 
-$("camTake").addEventListener("click", () => $("camFileCam").click());
+// "Take photo" opens the live camera page in a tab (a popup cannot ask for camera permission).
+$("camTake").addEventListener("click", () => {
+  chrome.tabs.create({ url: chrome.runtime.getURL("camera.html") });
+  window.close();
+});
 $("camUpload").addEventListener("click", () => $("camFileUp").click());
 // reset the input after reading so choosing the same photo again still works
 function onPick(e) { const f = e.target.files[0]; e.target.value = ""; takePhoto(f); }
@@ -471,6 +479,17 @@ async function takePhoto(f) {
   detectGarment(); // runs automatically, no extra click
 }
 
+// If the server model can't detect the garment, the user can pick it by hand and everything else still works.
+function manualPickHTML() {
+  return `<div class="sec">Or choose the garment yourself</div>
+    <div class="chips" id="camManual" style="margin-top:0">${Object.entries(GARMENTS).map(([k, g]) =>
+      `<span class="chip" data-g="${k}">${esc(searchName(g.label))}</span>`).join("")}</div>`;
+}
+function wireManualPick(out) {
+  const box = out.querySelector("#camManual");
+  if (box) box.addEventListener("click", (e) => { if (e.target.dataset.g) renderDetection({}, out, e.target.dataset.g); });
+}
+
 async function detectGarment() {
   if (!photo) return;
   const my = ++detectToken;
@@ -495,31 +514,34 @@ async function detectGarment() {
       const msg = res.status >= 500
         ? "The detection model on the server failed. Try again in a moment."
         : (d.error || "Detection failed.");
-      out.innerHTML = `<div class="err">${esc(msg)}</div><button class="btn ghost full" id="camRetry">↻ Try again</button>`;
+      out.innerHTML = `<div class="err">${esc(msg)}</div><button class="btn ghost full" id="camRetry">↻ Try again</button>${manualPickHTML()}`;
       $("camRetry").addEventListener("click", detectGarment);
+      wireManualPick(out);
       return;
     }
     renderDetection(d, out);
   } catch (e) {
     if (my !== detectToken) return;
-    out.innerHTML = `<div class="err">${e.name === "AbortError" ? "The server took too long to answer." : "Can't reach the server."} It may be asleep. Wait a few seconds and try again.</div><button class="btn ghost full" id="camRetry">↻ Try again</button>`;
+    out.innerHTML = `<div class="err">${e.name === "AbortError" ? "The server took too long to answer." : "Can't reach the server."} It may be asleep. Wait a few seconds and try again.</div><button class="btn ghost full" id="camRetry">↻ Try again</button>${manualPickHTML()}`;
     $("camRetry").addEventListener("click", detectGarment);
+    wireManualPick(out);
   } finally {
     clearTimeout(slow);
     clearTimeout(killer);
   }
 }
 
-function renderDetection(d, out) {
-  const preds = (d.predictions || []).slice().sort((a, b) => b.confidence - a.confidence);
+function renderDetection(d, out, forced) {
+  const preds = forced ? [{ label: GARMENTS[forced].label, confidence: 1 }] : (d.predictions || []).slice().sort((a, b) => b.confidence - a.confidence);
   if (!preds.length) {
-    out.innerHTML = `<div class="err">No garment found. Put the garment flat on a plain background, in good light, and fill the frame.</div><button class="btn ghost full" id="camRetry">↻ Try another photo</button>`;
+    out.innerHTML = `<div class="err">No garment found. Put the garment flat on a plain background, in good light, and fill the frame.</div><button class="btn ghost full" id="camRetry">↻ Try another photo</button>${manualPickHTML()}`;
     $("camRetry").addEventListener("click", () => $("camUpload").click());
+    wireManualPick(out);
     return;
   }
   const top = preds[0];
   const conf = Math.round(top.confidence * 100);
-  const garment = mapGarment(top.label);
+  const garment = forced || mapGarment(top.label);
   currentGarment = garment; // detected garment sets the weight used in the report
   const sure = top.confidence >= 0.4;
 
@@ -530,14 +552,15 @@ function renderDetection(d, out) {
   out.innerHTML = `
     <div class="card">
       <h3>${esc(pretty(top.label))}</h3>
-      <div class="sub">Garment type: ${esc(GARMENTS[garment].label)} · confidence ${conf}%</div>
-      ${sure ? "" : `<div class="banner warn"><span>⚠</span><span>Not very sure. Try a clearer photo, or check the other guesses below.</span></div>`}
-      ${rows}
+      <div class="sub">Garment type: ${esc(GARMENTS[garment].label)} · ${forced ? "chosen by you" : "confidence " + conf + "%"}</div>
+      ${sure ? "" : `<div class="banner warn"><span>⚠</span><span>Not very sure. Try a clearer photo, or choose the garment yourself below.</span></div>`}
+      ${forced ? "" : rows}
+      ${sure && !forced ? "" : manualPickHTML()}
       <div class="sec">What is it made of?</div>
       <div class="sub" style="margin:-2px 0 8px">Cameras can't see the fabric. Pick it from the care label (typical fabrics for this garment first).</div>
       <div class="chips" id="camChips" style="margin-top:0">${likely.map((m) => `<span class="chip" data-m="${m}">${esc(pretty(m))}</span>`).join("")}</div>
       <select id="camMat" style="margin-top:8px"><option value="">Other fabric...</option>${ALL_FABRICS.filter((m) => !likely.includes(m)).map((m) => `<option value="${m}">${esc(pretty(m))}</option>`).join("")}</select>
-      <div class="sub" style="margin-top:8px">Detection model: YOLO, trained on a subset of Fashionpedia. It recognises the garment shape, not the fabric.</div>
+      <div class="sub" style="margin-top:8px">${forced ? "Garment chosen by you." : "Detection model: YOLO, trained on a subset of Fashionpedia."} It recognises the garment shape, not the fabric.</div>
     </div>
     <div id="camMatOut"></div>`;
 
@@ -550,25 +573,45 @@ function renderDetection(d, out) {
     if (!data) { box.innerHTML = `<div class="err">No data for this fabric.</div>`; return; }
     renderMaterial(data, box, { title: `${pretty(top.label)} · ${pretty(m)}`, subtitle: "Fabric chosen by you. Check the care label to be sure." });
   };
+  wireManualPick(out);
   $("camChips").addEventListener("click", (e) => { if (e.target.dataset.m) { $("camMat").value = ""; pick(e.target.dataset.m); } });
   $("camMat").addEventListener("change", (e) => { out.querySelectorAll("#camChips .chip").forEach((c) => c.classList.remove("on")); pick(e.target.value); });
 }
 
-// ---------- Compare ----------
+// =====================================================================
+// COMPARE: side by side, a winner for every metric
+// =====================================================================
+const CMP_MAX = 6;
 async function getItems() { return (await chrome.storage.local.get({ items: [] })).items; }
 
-async function addToCompare(data) {
+// data: { material_label, eco_score, carbon_footprint_kg_co2e_per_kg, water_usage_l_per_kg, perWearG?, price?, currency?, kind? }
+async function addToCompare(data, opts) {
   const items = await getItems();
   if (!items.some((i) => i.material_label === data.material_label)) {
     items.push({
       material_label: data.material_label, eco_score: data.eco_score,
       carbon_footprint_kg_co2e_per_kg: data.carbon_footprint_kg_co2e_per_kg,
-      water_usage_l_per_kg: data.water_usage_l_per_kg, perWearG: data.perWearG ?? null
+      water_usage_l_per_kg: data.water_usage_l_per_kg, perWearG: data.perWearG ?? null,
+      price: data.price ?? null, currency: data.currency ?? null, kind: data.kind || "fabric"
     });
+    while (items.length > CMP_MAX) items.shift(); // keep the newest six
     await chrome.storage.local.set({ items });
   }
   updateCount();
-  showTab("compare");
+  if (opts && opts.stay) renderCompare(); else showTab("compare");
+}
+
+// one tap on a fabric chip adds it to the comparison
+async function quickAddFabric(m) {
+  const data = await getScore(m).catch(() => null);
+  if (!data) return;
+  const r = buildReport([{ key: m, pct: 100, data }], currentGarment);
+  await addToCompare({
+    material_label: pretty(m), eco_score: Math.round(r.score ?? data.eco_score),
+    carbon_footprint_kg_co2e_per_kg: r.carbonKg != null ? Number(r.carbonKg.toFixed(1)) : null,
+    water_usage_l_per_kg: r.waterKg != null ? Math.round(r.waterKg) : null,
+    perWearG: r.carbonPerWearG != null ? Math.round(r.carbonPerWearG) : null, kind: "fabric"
+  }, { stay: true });
 }
 
 async function updateCount() {
@@ -577,32 +620,150 @@ async function updateCount() {
   $("bagCount").textContent = d.cart.length;
 }
 
+const numOrNull = (v) => (v == null || v === "" || isNaN(Number(v)) ? null : Number(v));
+const cmpName = (i) => (i.kind === "product" ? String(i.material_label) : pretty(i.material_label));
+const cmpPrice = (i) => numOrNull(i.price);
+
+// what is compared: higher = a bigger number is better
+const CMP_METRICS = [
+  { key: "eco_score", label: "Eco score", icon: "🌿", higher: true, get: (i) => numOrNull(i.eco_score), show: (v) => Math.round(v) + "/100", hint: "higher is better" },
+  { key: "carbon", label: "Carbon", icon: "💨", higher: false, get: (i) => numOrNull(i.carbon_footprint_kg_co2e_per_kg), show: (v) => fmt(v, 1) + " kg CO₂e/kg", hint: "lower is better" },
+  { key: "water", label: "Water", icon: "💧", higher: false, get: (i) => numOrNull(i.water_usage_l_per_kg), show: (v) => Math.round(v).toLocaleString("en-IN") + " L/kg", hint: "lower is better" },
+  { key: "wear", label: "Carbon per wear", icon: "👕", higher: false, get: (i) => numOrNull(i.perWearG), show: (v) => Math.round(v) + " g", hint: "lower is better" },
+  { key: "price", label: "Price", icon: "🏷", higher: false, get: cmpPrice, show: null, hint: "lower is cheaper" }
+];
+
+// the rows of one metric, best first, each with its bar colour and how far it is from the best
+function metricRows(m, items) {
+  const vals = items.map((i) => ({ i, v: m.get(i) })).filter((x) => x.v != null);
+  if (!vals.length) return null;
+  const best = m.higher ? Math.max(...vals.map((x) => x.v)) : Math.min(...vals.map((x) => x.v));
+  const worst = m.higher ? Math.min(...vals.map((x) => x.v)) : Math.max(...vals.map((x) => x.v));
+  const maxV = Math.max(...vals.map((x) => x.v)) || 1;
+  const multi = vals.length > 1;
+  const tie = best === worst;
+  vals.sort((a, b) => (m.higher ? b.v - a.v : a.v - b.v));
+  return {
+    best, worst, multi, tie,
+    rows: vals.map((x) => {
+      const isBest = x.v === best, isWorst = x.v === worst;
+      let color = "#9fb2a7";
+      if (multi) color = tie || isBest ? "#1a9b66" : isWorst ? "#d65353" : "#e29a2e";
+      let diff = "";
+      if (multi && !isBest) {
+        if (m.key === "eco_score") diff = "−" + Math.round(best - x.v) + " pts";
+        else if (best > 0) diff = x.v / best >= 4 ? "×" + Math.round(x.v / best) : "+" + Math.round(((x.v - best) / best) * 100) + "%";
+      }
+      return { i: x.i, v: x.v, w: Math.max(6, (x.v / maxV) * 100), color, isBest: multi && isBest && !tie, diff };
+    })
+  };
+}
+
+function cmpMetricHTML(m, items) {
+  const mr = metricRows(m, items);
+  if (!mr) return "";
+  if (m.key === "price" && mr.rows.length < 2) return ""; // a lone price says nothing
+  return `<div class="mt">
+    <h4><span>${m.icon} ${m.label}</span><span class="hint">${m.hint}</span></h4>
+    ${mr.rows.map((r) => {
+      const val = m.show ? m.show(r.v) : fmtPrice(r.v, r.i.currency);
+      return `<div class="mr">
+        <div class="t"><span class="nm"><span style="${r.i.kind === "product" ? "" : "text-transform:capitalize"}">${esc(cmpName(r.i))}</span>${r.isBest ? `<span class="win">✓ best</span>` : ""}</span>
+          <span class="vv">${esc(val)}${r.diff ? `<span class="df">${esc(r.diff)}</span>` : ""}</span></div>
+        <div class="bb"><i style="width:${r.w}%;background:${r.color}"></i></div>
+      </div>`;
+    }).join("")}
+  </div>`;
+}
+
+// one plain sentence: why the winner wins
+function verdictText(best, worst) {
+  const bits = [];
+  const pts = (numOrNull(best.eco_score) ?? 0) - (numOrNull(worst.eco_score) ?? 0);
+  if (pts > 0) bits.push("+" + Math.round(pts) + " eco points");
+  const less = (a, b) => (a != null && b != null && b > 0 && a < b ? Math.round((1 - a / b) * 100) : 0);
+  const c = less(numOrNull(best.carbon_footprint_kg_co2e_per_kg), numOrNull(worst.carbon_footprint_kg_co2e_per_kg));
+  const w = less(numOrNull(best.water_usage_l_per_kg), numOrNull(worst.water_usage_l_per_kg));
+  if (c > 0) bits.push(c + "% less carbon");
+  if (w > 0) bits.push(w + "% less water");
+  if (!bits.length) return "These score about the same. Pick on price, fit and how long you will wear it.";
+  const last = bits.pop();
+  return `${bits.length ? bits.join(", ") + " and " : ""}${last} than ${cmpName(worst)}.`;
+}
+
 async function renderCompare() {
   const items = await getItems();
   const list = $("cmpList");
   $("cmpClear").style.display = items.length ? "block" : "none";
+
+  const have = new Set(items.map((i) => i.material_label));
+  const quick = CHIPS.filter((m) => !have.has(pretty(m)));
+  const quickHTML = quick.length && items.length < CMP_MAX
+    ? `<div class="lbl">${items.length ? "Add a fabric to compare" : "Start with two fabrics"}</div>
+       <div class="chips" id="cmpQuick">${quick.map((m) => `<span class="chip" data-m="${m}">+ ${esc(pretty(m))}</span>`).join("")}</div>` : "";
+  const wireQuick = () => list.querySelectorAll("#cmpQuick .chip").forEach((c) => c.addEventListener("click", () => {
+    c.textContent = "…";
+    quickAddFabric(c.dataset.m);
+  }));
+
   if (!items.length) {
-    list.innerHTML = `<div class="empty"><span class="big">⚖</span>Nothing to compare yet.<br>Analyse a fabric and tap "Add to Compare".</div>`;
+    list.innerHTML = `<div class="empty"><span class="big">⚖</span>Nothing to compare yet.<br>Tap two fabrics below, or press <b>+ Compare</b> on a report or a bag item.</div>${quickHTML}`;
+    wireQuick();
     return;
   }
-  const best = Math.max(...items.map((i) => i.eco_score ?? -1));
-  list.innerHTML = items.map((i, idx) => `
-    <div class="cmp">
-      <div style="min-width:0">
-        <b style="text-transform:capitalize">${esc(pretty(i.material_label))}</b>${i.eco_score === best && items.length > 1 ? `<span class="best">BEST</span>` : ""}
-        <div class="sub">CO₂ ${esc(i.carbon_footprint_kg_co2e_per_kg ?? "—")} kg/kg · Water ${i.water_usage_l_per_kg ? esc(i.water_usage_l_per_kg) + " L/kg" : "N/A"}${i.perWearG != null ? " · " + esc(i.perWearG) + " g/wear" : ""}</div>
+
+  // winner = highest eco score, lower carbon breaks a tie
+  const ranked = items.slice().sort((a, b) =>
+    (numOrNull(b.eco_score) ?? -1) - (numOrNull(a.eco_score) ?? -1) ||
+    (numOrNull(a.carbon_footprint_kg_co2e_per_kg) ?? Infinity) - (numOrNull(b.carbon_footprint_kg_co2e_per_kg) ?? Infinity));
+  const champ = ranked[0], loser = ranked[ranked.length - 1];
+  const many = items.length > 1;
+
+  // how many metrics each item wins
+  const wins = new Map(items.map((i) => [i, 0]));
+  let rounds = 0;
+  CMP_METRICS.forEach((m) => {
+    const mr = metricRows(m, items);
+    if (!mr || mr.rows.length < 2 || mr.tie) return;
+    rounds++;
+    mr.rows.filter((r) => r.v === mr.best).forEach((r) => wins.set(r.i, wins.get(r.i) + 1));
+  });
+
+  const verdict = many
+    ? `<div class="vcard">
+        <div class="vr">
+          <div style="min-width:0"><div class="vt">🏆 Greener choice</div>
+            <div class="vn" style="${champ.kind === "product" ? "" : "text-transform:capitalize"}">${esc(cmpName(champ))}</div></div>
+          <div class="vsc">${esc(Math.round(numOrNull(champ.eco_score) ?? 0))}</div>
+        </div>
+        <div class="vs">${esc(verdictText(champ, loser))}</div>
+      </div>`
+    : `<div class="tip"><b>One more to go.</b> Add a second fabric or product and we show which one is greener, metric by metric.</div>`;
+
+  const cards = ranked.map((i) => {
+    const t = tierOf(numOrNull(i.eco_score));
+    const idx = items.indexOf(i);
+    const w = wins.get(i);
+    return `<div class="cc tier-${t.key}">
+      <div style="flex:1;min-width:0">
+        <div class="cn" style="${i.kind === "product" ? "" : "text-transform:capitalize"}">${many && i === champ ? "🏆 " : ""}${esc(cmpName(i))}</div>
+        <div class="cm">${esc(t.label)}${rounds && many ? ` · wins ${w} of ${rounds}` : ""}${cmpPrice(i) != null ? " · " + esc(fmtPrice(cmpPrice(i), i.currency)) : ""}</div>
       </div>
-      <div style="text-align:right">
-        <div style="font-weight:800;font-size:18px;color:${colorFor(i.eco_score)}">${esc(i.eco_score ?? "—")}</div>
-        <button class="x" data-i="${idx}">remove</button>
-      </div>
-    </div>`).join("");
-  list.querySelectorAll(".x").forEach((b) => b.addEventListener("click", async () => {
+      <div class="csc" style="background:${t.color}">${i.eco_score != null ? esc(Math.round(i.eco_score)) : "?"}</div>
+      <button class="x" data-i="${idx}" title="Remove">✕</button>
+    </div>`;
+  }).join("");
+
+  list.innerHTML = verdict + cards + (many ? CMP_METRICS.map((m) => cmpMetricHTML(m, ranked)).join("") : "") +
+    quickHTML + (many ? `<div class="sub" style="margin-top:10px">Carbon and water are per kilogram of fabric, so products and fabrics can be compared fairly. Green bar = best, red = worst. Estimates from our materials database.</div>` : "");
+
+  list.querySelectorAll(".cc .x").forEach((b) => b.addEventListener("click", async () => {
     const arr = await getItems();
     arr.splice(Number(b.dataset.i), 1);
     await chrome.storage.local.set({ items: arr });
     renderCompare(); updateCount();
   }));
+  wireQuick();
 }
 
 $("cmpClear").addEventListener("click", async () => {
@@ -611,29 +772,34 @@ $("cmpClear").addEventListener("click", async () => {
 });
 
 // =====================================================================
-// BAG with SUSTAINABILITY + BUDGET FILTER
+// BAG: colour-coded by eco score (green good, amber average, red high impact)
 // =====================================================================
-const DEFAULT_FILTERS = { min: 0, max: null, sort: "new", q: "" };
+const DEFAULT_FILTERS = { min: 0, max: null, sort: "new", q: "", tier: "all" };
+let bagTier = "all";
 async function getFilters() {
   const f = (await chrome.storage.local.get({ filters: DEFAULT_FILTERS })).filters;
   return { ...DEFAULT_FILTERS, ...f };
 }
-// search box + reset button are added from JS (so popup.html needs no change)
-$("fCount").insertAdjacentHTML("beforebegin", `
-  <div class="frow"><label>Search</label><input type="number" id="fQ" style="display:none"><input type="text" id="fQt" placeholder="name, site or fabric" style="flex:1;min-width:0;padding:8px 10px;border:1.5px solid var(--line);border-radius:10px;font-size:12px;background:#fff;color:var(--ink)"></div>
-  <button class="btn ghost full" id="fReset" style="display:none;margin:2px 0 8px">↺ Show all items (clear filters)</button>`);
 async function saveFilters(f) { await chrome.storage.local.set({ filters: f }); }
 
 function readFilterInputs() {
   const mx = parseFloat($("fMax").value);
-  return { min: Number($("fMin").value) || 0, max: isFinite(mx) && mx > 0 ? mx : null, sort: $("fSort").value, q: $("fQt").value.trim() };
+  return { min: Number($("fMin").value) || 0, max: isFinite(mx) && mx > 0 ? mx : null, sort: $("fSort").value, q: $("fQt").value.trim(), tier: bagTier };
 }
-$("fReset").addEventListener("click", async () => { await saveFilters({ ...DEFAULT_FILTERS }); renderBag(); });
+$("fReset").addEventListener("click", async () => { bagTier = "all"; await saveFilters({ ...DEFAULT_FILTERS }); renderBag(); });
 ["fMin", "fMax", "fSort", "fQt"].forEach((id) => $(id).addEventListener("input", async () => {
   $("fMinVal").textContent = $("fMin").value;
   await saveFilters(readFilterInputs());
   renderBag();
 }));
+// the coloured chips above the list filter by tier
+$("bagTiers").addEventListener("click", async (e) => {
+  const b = e.target.closest("[data-tier]");
+  if (!b) return;
+  bagTier = b.dataset.tier;
+  await saveFilters(readFilterInputs());
+  renderBag();
+});
 
 const STATUS_TEXT = { bag: "In bag", bought: "Bought", skipped: "Skipped" };
 
@@ -641,12 +807,22 @@ async function renderBag() {
   const { cart } = await chrome.storage.local.get({ cart: [] });
   const list = $("bagList");
   const f = await getFilters();
+  bagTier = ["all", "good", "mid", "bad"].includes(f.tier) ? f.tier : "all";
   $("fMin").value = f.min; $("fMinVal").textContent = f.min;
   $("fMax").value = f.max ?? ""; $("fSort").value = f.sort;
   if (document.activeElement !== $("fQt")) $("fQt").value = f.q;
-  const filtersOn = f.min > 0 || f.max != null || !!f.q;
+  const filtersOn = f.min > 0 || f.max != null || !!f.q || bagTier !== "all";
   $("fReset").style.display = filtersOn ? "block" : "none";
   $("bagClear").style.display = cart.length ? "block" : "none";
+
+  // coloured tier chips with counts
+  const cnt = { good: 0, mid: 0, bad: 0 };
+  cart.forEach((c) => { const k = tierOf(c.score).key; if (cnt[k] !== undefined) cnt[k]++; });
+  const chip = (key, label, n, dot) =>
+    `<button class="tchip ${key} ${bagTier === key ? "on" : ""}" data-tier="${key}">${dot ? `<em style="background:${dot}"></em>` : ""}${label} <b>${n}</b></button>`;
+  $("bagTiers").innerHTML = cart.length
+    ? chip("all", "All", cart.length, "") + chip("good", "Good", cnt.good, TIERS.good.color) + chip("mid", "Average", cnt.mid, TIERS.mid.color) + chip("bad", "High impact", cnt.bad, TIERS.bad.color)
+    : "";
 
   if (!cart.length) {
     $("fCount").textContent = "";
@@ -658,6 +834,7 @@ async function renderBag() {
   let rows = cart.map((c, i) => ({ c, i }));
   let hiddenNoScore = 0, hiddenNoPrice = 0;
   rows = rows.filter(({ c }) => {
+    if (bagTier !== "all" && tierOf(c.score).key !== bagTier) return false;
     if (f.q) {
       const hay = [c.title, c.site, c.label].join(" ").toLowerCase();
       if (!hay.includes(f.q.toLowerCase())) return false;
@@ -679,27 +856,41 @@ async function renderBag() {
 
   const live = cart.filter((c) => c.status !== "skipped" && typeof c.score === "number");
   const avg = live.length ? Math.round(live.reduce((s, c) => s + c.score, 0) / live.length) : null;
+  const avgTier = tierOf(avg);
   const summary = avg !== null
-    ? `<div class="summary"><div><small>Average eco score (skipped items excluded)</small><b>${avg}/100</b></div><div style="text-align:right"><small>${cart.length} item${cart.length > 1 ? "s" : ""}</small><span style="font-weight:700">${tierText(avg)}</span></div></div>`
+    ? `<div class="summary tier-${avgTier.key}"><div><small>Average eco score (skipped items excluded)</small><b>${avg}/100</b></div><div style="text-align:right"><small>${cart.length} item${cart.length > 1 ? "s" : ""}</small><span style="font-weight:700">${avgTier.label}</span></div></div>`
     : "";
 
+  // the greenest and the worst item of the bag get a tag
+  let bestI = -1, worstI = -1;
+  const liveIdx = cart.map((c, i) => ({ c, i })).filter((x) => x.c.status !== "skipped" && typeof x.c.score === "number");
+  if (liveIdx.length > 1) {
+    const hi = liveIdx.reduce((a, b) => (b.c.score > a.c.score ? b : a));
+    const lo = liveIdx.reduce((a, b) => (b.c.score < a.c.score ? b : a));
+    if (hi.c.score !== lo.c.score) { bestI = hi.i; if (lo.c.score < 60) worstI = lo.i; }
+  }
+
   if (!rows.length) {
-    list.innerHTML = summary + `<div class="empty"><span class="big">🔎</span>No items match your filter.<br>Lower the minimum score or raise the budget.</div>`;
+    list.innerHTML = summary + `<div class="empty"><span class="big">🔎</span>No items match your filter.<br>Lower the minimum score, raise the budget, or tap <b>All</b>.</div>`;
     return;
   }
 
   list.innerHTML = summary + rows.map(({ c, i }) => {
     const hasScore = typeof c.score === "number";
+    const t = tierOf(c.score);
     const st = c.status || "bag";
     const img = c.image ? `<img src="${esc(c.image)}" alt="">` : `<div class="ph">👕</div>`;
     const chips = (c.certs || []).slice(0, 3).map((id) => `<span class="chipx">${esc(labelName(id))}</span>`).join("")
       || `<span class="chipx st">no eco-label found</span>`;
-    return `<div class="item ${st === "skipped" ? "dim" : ""}">
+    const tag = i === bestI ? `<span class="tag best">🏆 Greenest in bag</span>` : i === worstI ? `<span class="tag worst">⚠ Highest impact</span>` : "";
+    return `<div class="item tier-${t.key} ${st === "skipped" ? "dim" : ""}">
       <div class="top">${img}
         <div style="flex:1;min-width:0"><div class="nm">${esc(c.title)}</div>
           <div class="meta">${esc(c.site)}${c.price != null ? " · " + esc(fmtPrice(c.price, c.currency)) : ""}${c.label ? " · " + esc(c.label) : ""}${c.guessed ? " (estimated)" : ""}</div>
-          <div><span class="chipx st ${st}">${STATUS_TEXT[st] || st}</span>${chips}</div></div>
-        ${hasScore ? `<div class="sc" style="background:${colorFor(c.score)}">${c.score}</div>` : `<div class="sc" style="background:#b7c5bc">?</div>`}
+          <div><span class="tpill tier-${t.key}">${hasScore ? "● " + t.label : t.label}</span>${tag}</div>
+          <div><span class="chipx st ${st}">${STATUS_TEXT[st] || st}</span>${chips}</div>
+          ${hasScore ? `<div class="mini"><i style="width:${Math.max(3, Math.min(100, c.score))}%;background:${t.color}"></i></div>` : ""}</div>
+        ${hasScore ? `<div class="sc" style="background:${t.color}">${c.score}</div>` : `<div class="sc" style="background:#b7c5bc">?</div>`}
       </div>
       <div class="acts">
         <button data-act="details" data-i="${i}">Full report</button>
@@ -744,7 +935,13 @@ async function renderBag() {
       loadRecommendations(rec, { name: item.title, garment: item.garment || "top", score: typeof item.score === "number" ? item.score : undefined });
     } else if (act === "compare") {
       if (typeof item.score !== "number") return;
-      addToCompare({ material_label: item.label || item.title, eco_score: item.score, carbon_footprint_kg_co2e_per_kg: item.carbon, water_usage_l_per_kg: item.water });
+      const im = itemImpact(item);
+      addToCompare({
+        material_label: String(item.title || item.label || "Product").slice(0, 48), eco_score: item.score,
+        carbon_footprint_kg_co2e_per_kg: item.carbon, water_usage_l_per_kg: item.water,
+        perWearG: im.perWearG != null ? Math.round(im.perWearG) : null,
+        price: item.price ?? null, currency: item.currency ?? null, kind: "product"
+      });
     } else {
       openBagItem(item);
     }
@@ -812,6 +1009,111 @@ function trendSVG(items) {
   return `<svg class="trend" viewBox="0 0 ${W} ${H}" role="img" aria-label="Average eco score per week">${bars}</svg>`;
 }
 
+// numbers count up from zero when the dashboard opens
+function countUp(root) {
+  if (window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  root.querySelectorAll("[data-count]").forEach((el) => {
+    const to = Number(el.dataset.count), dec = Number(el.dataset.dec || 0);
+    const pre = el.dataset.pre || "", suf = el.dataset.suf || "";
+    const t0 = performance.now(), dur = 800;
+    const step = (t) => {
+      const k = Math.min(1, (t - t0) / dur), e = 1 - Math.pow(1 - k, 3);
+      el.textContent = pre + (to * e).toLocaleString("en-IN", { minimumFractionDigits: dec, maximumFractionDigits: dec }) + suf;
+      if (k < 1) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  });
+}
+
+// a ranked list of bars: rows = [{ title, v, color }]
+function rankHTML(rows, fmtVal, total, scale) {
+  if (!rows.length) return `<div class="tip">Nothing to show for this yet.</div>`;
+  const max = scale || Math.max(...rows.map((r) => r.v)) || 1;
+  return rows.slice(0, 6).map((r) => `<div class="rk">
+      <div class="rkt"><span class="rkn">${esc(r.title)}</span><span class="rkv">${esc(fmtVal(r.v))}${total ? `<small>${Math.round((r.v / total) * 100)}%</small>` : ""}</span></div>
+      <div class="rkb"><i style="width:${Math.max(4, Math.min(100, (r.v / max) * 100))}%;background:${r.color}"></i></div>
+    </div>`).join("") + (rows.length > 6 ? `<div class="sub">and ${rows.length - 6} more</div>` : "");
+}
+const eqTiles = (arr) => `<div class="eqs">${arr.map(([big, small]) => `<div><b>${esc(big)}</b><small>${esc(small)}</small></div>`).join("")}</div>`;
+
+// what opens under a card when you tap it
+function drillHTML(kind, s) {
+  if (kind === "items") {
+    const rows = s.scored.slice().sort((a, b) => a.score - b.score).map((c) => ({ title: c.title, v: c.score, color: tierOf(c.score).color }));
+    return `<h4>What you are tracking</h4><div class="dsub">Lowest eco score first. Red items are the ones to replace.</div>
+      ${eqTiles([[s.inBag, "still in your bag"], [s.bought, "bought"], [s.skipped, "skipped"]])}
+      <div style="margin-top:12px">${rankHTML(rows, (v) => v + "/100", 0, 100)}</div>`;
+  }
+  if (kind === "carbon") {
+    const top = s.carbonRows[0];
+    const lead = top && s.carbonRows.length > 1 ? `<div class="tip" style="margin-bottom:10px"><b>${esc(top.title)}</b> alone makes up <b>${Math.round((top.v / s.carbon) * 100)}%</b> of your carbon.</div>` : "";
+    return `<h4>Where your carbon comes from</h4><div class="dsub">kg CO₂e to make each garment (fabric footprint × garment weight).</div>
+      ${lead}${rankHTML(s.carbonRows, (v) => fmt(v, 1) + " kg", s.carbon)}
+      ${eqTiles([[Math.round(s.carbon / 0.17).toLocaleString("en-IN") + " km", "in a petrol car"], [fmt(s.carbon / 21, 1), "tree-years to absorb it"]])}
+      <div class="sub" style="margin-top:8px">Rough assumptions: 0.17 kg CO₂ per km, one tree absorbs about 21 kg CO₂ a year.</div>`;
+  }
+  if (kind === "water") {
+    const top = s.waterRows[0];
+    const lead = top && s.waterRows.length > 1 ? `<div class="tip" style="margin-bottom:10px"><b>${esc(top.title)}</b> alone needs <b>${Math.round((top.v / s.water) * 100)}%</b> of the water.</div>` : "";
+    return `<h4>Where your water goes</h4><div class="dsub">Litres used to grow and make each garment.</div>
+      ${lead}${rankHTML(s.waterRows, (v) => Math.round(v).toLocaleString("en-IN") + " L", s.water)}
+      ${eqTiles([[Math.round(s.water / 65).toLocaleString("en-IN"), "showers (65 L each)"], [fmt(s.water / 2 / 365, 1) + " yr", "of one person's drinking water"]])}
+      <div class="sub" style="margin-top:8px">Rough assumptions: a shower is 65 L, a person drinks 2 L a day.</div>`;
+  }
+  // spend
+  if (!s.priced) return `<h4>Spend</h4><div class="tip">No prices were found on the pages you added. Prices appear when the shop page shows them.</div>`;
+  const badShare = s.spend ? Math.round((s.spendBad / s.spend) * 100) : 0;
+  const cmpLine = s.avgGood != null && s.avgBad != null
+    ? (s.avgGood <= s.avgBad
+        ? `Your greener items are not dearer: <b>${fmtPrice(s.avgGood, s.cur)}</b> on average against <b>${fmtPrice(s.avgBad, s.cur)}</b> for high-impact ones.`
+        : `Your greener items cost about <b>${Math.round((s.avgGood / s.avgBad - 1) * 100)}% more</b>: <b>${fmtPrice(s.avgGood, s.cur)}</b> on average against <b>${fmtPrice(s.avgBad, s.cur)}</b> for high-impact ones.`)
+    : "";
+  return `<h4>Where your money goes</h4><div class="dsub">Price of each item that showed one, coloured by its eco score.</div>
+    ${rankHTML(s.priceRows, (v) => fmtPrice(v, s.cur), s.spend)}
+    ${eqTiles([[fmtPrice(s.spend / s.priced, s.cur), "average per item"], [badShare + "%", "spent on high-impact items"]])}
+    ${cmpLine ? `<div class="tip" style="margin-top:10px">${cmpLine}</div>` : ""}`;
+}
+
+let kpiOpen = "carbon";
+let lastStats = null;
+
+function paintDrill() {
+  const d = $("drill");
+  if (!d || !lastStats) return;
+  document.querySelectorAll(".kpi[data-kpi]").forEach((k) => {
+    k.classList.toggle("on", k.dataset.kpi === kpiOpen);
+    k.setAttribute("aria-expanded", k.dataset.kpi === kpiOpen ? "true" : "false");
+  });
+  d.style.display = kpiOpen ? "block" : "none";
+  d.innerHTML = kpiOpen ? drillHTML(kpiOpen, lastStats) : "";
+}
+
+function summaryText(s) {
+  const lines = [
+    "EcoCart AI impact summary",
+    `Items tracked: ${s.items} (${s.bought} bought)`,
+    `Average eco score: ${s.avg}/100 (goal ${GOAL_SCORE})`,
+    `Estimated carbon: ${fmt(s.carbon, 1)} kg CO2e`,
+    `Estimated water: ${Math.round(s.water).toLocaleString("en-IN")} L`,
+    s.priced ? `Spend: ${fmtPrice(s.spend, s.cur)} on ${s.priced} priced item${s.priced > 1 ? "s" : ""}` : "Spend: no prices found",
+    `Greenest item: ${s.best.title} (${s.best.score})`,
+    `Highest impact item: ${s.lowest.title} (${s.lowest.score})`,
+    "Estimates from the EcoCart AI materials database."
+  ];
+  return lines.join("\n");
+}
+async function copyText(text) {
+  try { await navigator.clipboard.writeText(text); return true; } catch (e) { /* fall through */ }
+  try {
+    const ta = document.createElement("textarea");
+    ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
+    document.body.appendChild(ta); ta.select();
+    const ok = document.execCommand("copy");
+    ta.remove();
+    return ok;
+  } catch (e) { return false; }
+}
+
 async function renderStats() {
   const { cart } = await chrome.storage.local.get({ cart: [] });
   const scope = $("statsScope").value;
@@ -823,6 +1125,7 @@ async function renderStats() {
 
   if (!items.length || !scored.length) {
     out.innerHTML = `<div class="empty"><span class="big">📊</span>${scope === "bought" ? "No bought items yet.<br>Tap <b>✓ Bought</b> on an item in your Bag." : "Nothing tracked yet.<br>Add clothes to your bag and your impact appears here."}</div>`;
+    lastStats = null;
     return;
   }
 
@@ -831,14 +1134,22 @@ async function renderStats() {
   const mid = scored.filter((c) => c.score >= 45 && c.score < 70).length;
   const bad = scored.filter((c) => c.score < 45).length;
 
-  let carbon = 0, water = 0, spend = 0, priced = 0, micro = 0;
+  let carbon = 0, water = 0, spend = 0, priced = 0, micro = 0, spendBad = 0, spendGood = 0, nGood = 0, nBad = 0;
+  const carbonRows = [], waterRows = [], priceRows = [];
   scored.forEach((c) => {
     const im = itemImpact(c);
-    if (im.garmentCarbon != null) carbon += im.garmentCarbon;
-    if (im.garmentWater != null) water += im.garmentWater;
+    const color = tierOf(c.score).color;
+    if (im.garmentCarbon != null) { carbon += im.garmentCarbon; carbonRows.push({ title: c.title, v: im.garmentCarbon, color }); }
+    if (im.garmentWater != null) { water += im.garmentWater; waterRows.push({ title: c.title, v: im.garmentWater, color }); }
     if (im.micro != null && im.micro >= 2) micro++;
-    if (c.price != null) { spend += c.price; priced++; }
+    if (c.price != null) {
+      spend += c.price; priced++;
+      priceRows.push({ title: c.title, v: c.price, color });
+      if (c.score < 45) { spendBad += c.price; nBad++; }
+      if (c.score >= 70) { spendGood += c.price; nGood++; }
+    }
   });
+  [carbonRows, waterRows, priceRows].forEach((r) => r.sort((a, b) => b.v - a.v));
   const labelled = items.filter((c) => (c.certs || []).length).length;
   const bought = cart.filter((c) => c.status === "bought").length;
   const skipped = cart.filter((c) => c.status === "skipped");
@@ -856,6 +1167,14 @@ async function renderStats() {
   const goalText = avg >= GOAL_SCORE ? "Goal reached. Keep it up." : `${GOAL_SCORE - avg} points to go. Greener fabrics and certified items raise your average.`;
   const pc = (n) => Math.round((n / scored.length) * 100);
   const cur = (scored.find((c) => c.currency) || {}).currency;
+  const sym = CURRENCY_SYMBOL[cur] || "";
+
+  lastStats = {
+    items: items.length, scored, bought, inBag: cart.filter((c) => (c.status || "bag") === "bag").length, skipped: skipped.length,
+    carbon, water, spend, priced, cur, carbonRows, waterRows, priceRows, spendBad,
+    avgGood: nGood ? spendGood / nGood : null, avgBad: nBad ? spendBad / nBad : null,
+    avg, best, lowest
+  };
 
   const insights = [];
   insights.push(`Your greenest item is <b>${esc(best.title)}</b> (${best.score}).`);
@@ -863,6 +1182,8 @@ async function renderStats() {
   if (topFab) insights.push(`Most of your items are mainly <b>${esc(pretty(topFab[0]))}</b> (${topFab[1]} of ${scored.length}).`);
   if (micro) insights.push(`<b>${micro}</b> item${micro > 1 ? "s" : ""} shed microplastics when washed. Use a filter bag.`);
   if (labelled < items.length) insights.push(`<b>${items.length - labelled}</b> item${items.length - labelled > 1 ? "s have" : " has"} no recognised eco-label. Look for GOTS, OEKO-TEX or GRS.`);
+
+  const kpi = (key, label, big, sub) => `<button class="kpi ${kpiOpen === key ? "on" : ""}" data-kpi="${key}" aria-expanded="${kpiOpen === key}"><small>${label}</small>${big}<span>${sub}</span><i class="chev">›</i></button>`;
 
   out.innerHTML = `
     <div class="goal">
@@ -872,11 +1193,13 @@ async function renderStats() {
     </div>
 
     <div class="kpis">
-      <div class="kpi"><small>Items tracked</small><b>${items.length}</b><span>${bought} bought</span></div>
-      <div class="kpi"><small>Est. carbon</small><b>${fmt(carbon, 1)} kg</b><span>CO₂e, sum of garments</span></div>
-      <div class="kpi"><small>Est. water</small><b>${Math.round(water).toLocaleString()} L</b><span>to make them</span></div>
-      <div class="kpi"><small>Spend</small><b>${priced ? fmtPrice(spend, cur) : "N/A"}</b><span>${priced ? priced + " priced item" + (priced > 1 ? "s" : "") : "no prices found"}</span></div>
+      ${kpi("items", "Items tracked", `<b data-count="${items.length}">${items.length}</b>`, `${bought} bought`)}
+      ${kpi("carbon", "Est. carbon", `<b data-count="${carbon.toFixed(1)}" data-dec="1" data-suf=" kg">${fmt(carbon, 1)} kg</b>`, "CO₂e, sum of garments")}
+      ${kpi("water", "Est. water", `<b data-count="${Math.round(water)}" data-suf=" L">${Math.round(water).toLocaleString("en-IN")} L</b>`, "to make them")}
+      ${kpi("spend", "Spend", priced ? `<b data-count="${Math.round(spend)}" data-pre="${esc(sym)}">${esc(fmtPrice(spend, cur))}</b>` : `<b>N/A</b>`, priced ? priced + " priced item" + (priced > 1 ? "s" : "") : "no prices found")}
     </div>
+    <div class="kpihint">👆 Tap a card to see where the number comes from</div>
+    <div class="drill" id="drill"></div>
 
     <div class="card">
       <h3>Your choices</h3>
@@ -904,7 +1227,21 @@ async function renderStats() {
       <h3>Insights</h3>
       ${insights.map((t) => `<div class="insight">${t}</div>`).join("")}
       <div class="sub">Carbon and water are estimates: score data from our materials database, garment weights are assumptions. Only items added through the extension are counted.</div>
-    </div>`;
+    </div>
+    <button class="btn ghost full" id="copySum">📋 Copy my impact summary</button>`;
+
+  out.querySelectorAll(".kpi[data-kpi]").forEach((k) => k.addEventListener("click", () => {
+    kpiOpen = kpiOpen === k.dataset.kpi ? null : k.dataset.kpi;
+    paintDrill();
+  }));
+  out.querySelector("#copySum").addEventListener("click", async (e) => {
+    const b = e.currentTarget;
+    const ok = await copyText(summaryText(lastStats));
+    b.textContent = ok ? "✓ Copied. Paste it in your report" : "Couldn't copy. Select the numbers manually";
+    setTimeout(() => { b.textContent = "📋 Copy my impact summary"; }, 2500);
+  });
+  paintDrill();
+  countUp(out);
 }
 
 $("statsScope").addEventListener("change", renderStats);
@@ -914,12 +1251,23 @@ $("statsReset").addEventListener("click", async () => {
   renderStats(); updateCount();
 });
 
+
 // ---------- Init (handles right-click "check" from background.js) ----------
 (async function init() {
   updateCount();
   chrome.action.setBadgeText({ text: "" });
-  const d = await chrome.storage.local.get({ pendingCheck: null, unseen: 0 });
-  if (d.pendingCheck) {
+  const d = await chrome.storage.local.get({ pendingCheck: null, unseen: 0, pendingPhoto: null });
+  if (d.pendingPhoto) {
+    // a photo taken on the camera page: analyse it now
+    await chrome.storage.local.remove("pendingPhoto");
+    showTab("camera");
+    try {
+      const blob = await (await fetch(d.pendingPhoto)).blob();
+      takePhoto(new File([blob], "photo.jpg", { type: "image/jpeg" }));
+    } catch (e) {
+      $("camOut").innerHTML = `<div class="err">Could not read the photo. Please try again or use Upload.</div>`;
+    }
+  } else if (d.pendingCheck) {
     $("materialInput").value = d.pendingCheck;
     await chrome.storage.local.remove("pendingCheck");
     checkMaterial();

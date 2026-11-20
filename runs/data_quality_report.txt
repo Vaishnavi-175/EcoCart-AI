@@ -1,0 +1,28 @@
+EcoCart-AI Dataset Quality Report
+======================================
+
+DATABASE SUMMARY
+Total database rows: 40124
+Distinct parent product IDs (NULL excluded): 35860
+
+MISSING DATA CHECKS
+Rows missing product names: 0
+Rows missing material text: 0
+Rows missing parent product IDs: 0
+Rows missing categories: 0
+
+DUPLICATE CANDIDATE CHECK
+Repeated raw_record groups: 0
+
+FABRIC COMPOSITION CHECKS
+Simple compositions checked: 37339
+Simple compositions not approximately 100%: 10366
+Complex compositions needing separate validation: 2785
+Rows with no percentage found: 0
+
+INTERPRETATION AND LIMITATIONS
+- Repeated parent IDs can represent legitimate variants.
+- Repeated raw records need investigation before deduplication.
+- Complex material compositions require part-wise validation.
+- These checks do not verify environmental footprint values.
+- This script does not update or delete database records.

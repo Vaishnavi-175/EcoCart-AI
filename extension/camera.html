@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>EcoCart AI – Camera</title>
+<style>
+  *{box-sizing:border-box}
+  body{margin:0;font-family:system-ui,Segoe UI,Roboto,sans-serif;background:#0f1a14;color:#eaf5ee;min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:24px 16px}
+  h1{font-size:20px;margin:0 0 4px}
+  p{margin:4px 0 14px;color:#a9c2b3;font-size:14px;text-align:center;max-width:520px}
+  .box{position:relative;width:100%;max-width:560px;aspect-ratio:4/3;background:#000;border-radius:14px;overflow:hidden;border:2px solid #1a9b66}
+  video,canvas,img{width:100%;height:100%;object-fit:cover;display:block}
+  .row{display:flex;gap:10px;margin-top:16px;flex-wrap:wrap;justify-content:center}
+  button{border:0;border-radius:10px;padding:12px 22px;font-size:15px;font-weight:700;cursor:pointer;background:#1a9b66;color:#fff}
+  button.ghost{background:#24362c;color:#eaf5ee}
+  button:disabled{opacity:.5;cursor:default}
+  #msg{margin-top:14px;min-height:22px;font-size:14px;text-align:center;max-width:520px}
+  .err{color:#ffb4b4}.ok{color:#9ff0c4}
+  .hide{display:none}
+</style>
+</head>
+<body>
+  <h1>📷 EcoCart AI – Take a photo</h1>
+  <p>Point the camera at the garment (or its tag) and press Capture. Allow the camera when Chrome asks.</p>
+  <div class="box"><video id="v" autoplay playsinline muted></video><img id="shot" class="hide" alt=""></div>
+  <div class="row">
+    <button id="cap" disabled>📸 Capture</button>
+    <button id="again" class="ghost hide">↩ Retake</button>
+    <button id="use" class="hide">✓ Use this photo</button>
+  </div>
+  <div id="msg"></div>
+  <script src="camera.js"></script>
+</body>
+</html>

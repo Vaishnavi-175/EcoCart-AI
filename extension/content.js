@@ -1,4 +1,4 @@
-// EcoCart AI - runs on shopping pages (loaded after data.js, page.js and sync.js).
+// EcoCart AI - runs on shopping pages (loaded after data.js and page.js).
 // Detects "Add to bag / cart / basket" clicks, reads the product (name, price, fabric, eco-labels)
 // and sends it to the extension.
 
@@ -55,15 +55,10 @@
         ${labelLine}
         <div class="h">${s < 60 ? "Open the EcoCart icon for greener alternatives." : "Saved to your EcoCart bag."}</div>`;
     } else if (result && result.offline) {
-      body = `${labelLine}<div class="h">Saved. Start the EcoCart backend (python app.py) to get the score.</div>`;
+      body = `${labelLine}<div class="h">Saved. The server may be waking up, so open the EcoCart icon in a minute to see the score.</div>`;
     } else {
       body = `${labelLine}<div class="h">Saved to your EcoCart bag. No fabric details found on this page. Open the EcoCart icon to check it manually.</div>`;
     }
-
-    let syncLine = "";
-    if (result && result.sync === "pending") syncLine = `<div class="l ok">☁ Adding to your website cart…</div>`;
-    else if (result && result.sync === "done") syncLine = `<div class="l ok">☁ Already in your website cart</div>`;
-    else if (result && result.sync === "nologin") syncLine = `<div class="l warn">Log in on the EcoCart website once to also add to your website cart.</div>`;
 
     root.innerHTML = `
       <style>
@@ -79,7 +74,7 @@
         .h{font-size:11.5px;color:#4b6256;margin-top:8px;line-height:1.45}
       </style>
       <div class="box"><div class="top"><span>🌿 EcoCart AI</span><span class="x" id="x">×</span></div>
-      <div class="in"><div class="t"></div>${body}${syncLine}</div></div>`;
+      <div class="in"><div class="t"></div>${body}</div></div>`;
     root.querySelector(".t").textContent = title;
     root.getElementById("x").addEventListener("click", () => host.remove());
     document.documentElement.appendChild(host);
